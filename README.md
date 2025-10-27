@@ -1,4 +1,4 @@
-# Lekha <img src="./assets/logo.png" alt="lekha logo" align="right" height="138">
+# Lekha <img src="logo.png" alt="lekha logo" align="right" height="138">
 
 
 Easier manuscript transcription. 

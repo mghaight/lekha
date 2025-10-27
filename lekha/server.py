@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from flask import Flask, abort, jsonify, request, send_file, send_from_directory
+from flask import Flask, abort, jsonify, request, send_file, send_from_directory, session
 from PIL import Image
 
 from .project import ProjectStore, Segment
@@ -17,7 +18,32 @@ from .config import get_data_root
 def create_app(store: ProjectStore) -> Flask:
     static_dir = Path(__file__).parent / "web" / "static"
     app = Flask(__name__, static_folder=str(static_dir), static_url_path="/static")
-    runtime = ProjectRuntime(store)
+    app.secret_key = os.environ.get("LEKHA_WEB_SECRET", "lekha-dev")
+    default_project_id = store.project_id
+    runtime_cache: Dict[str, ProjectRuntime] = {default_project_id: ProjectRuntime(store)}
+
+    def ensure_runtime(project_id: str) -> ProjectRuntime:
+        if not project_id:
+            raise RuntimeError("Project identifier is required.")
+        if project_id in runtime_cache:
+            return runtime_cache[project_id]
+        project_root = get_data_root() / project_id
+        if not project_root.exists():
+            raise RuntimeError(f"Project '{project_id}' not found.")
+        tentative_store = ProjectStore(project_id)
+        if not tentative_store.segments_path.exists():
+            raise RuntimeError(f"Project '{project_id}' has no processed segments.")
+        runtime_cache[project_id] = ProjectRuntime(tentative_store)
+        return runtime_cache[project_id]
+
+    def current_runtime() -> ProjectRuntime:
+        project_id = session.get("project_id") or default_project_id
+        session["project_id"] = project_id
+        try:
+            runtime = ensure_runtime(project_id)
+        except RuntimeError as exc:
+            abort(400, str(exc))
+        return runtime
 
     @app.get("/")
     def index():
@@ -25,6 +51,7 @@ def create_app(store: ProjectStore) -> Flask:
 
     @app.get("/api/state")
     def get_state():
+        runtime = current_runtime()
         state = runtime.ensure_state()
         payload = dict(state)
         payload["project_id"] = runtime.store.project_id
@@ -32,6 +59,7 @@ def create_app(store: ProjectStore) -> Flask:
 
     @app.get("/api/segment/<segment_id>")
     def get_segment(segment_id: str):
+        runtime = current_runtime()
         seg = runtime.get_segment(segment_id)
         view = request.args.get("view")
         payload = runtime.segment_payload(seg.segment_id, view=view)
@@ -39,16 +67,22 @@ def create_app(store: ProjectStore) -> Flask:
 
     @app.get("/api/segment/<segment_id>/image")
     def segment_image(segment_id: str):
+        runtime = current_runtime()
         seg = runtime.get_segment(segment_id)
         crop_info = runtime.get_crop_info(segment_id)
         image = runtime.load_segment_image(seg, crop_info["crop"])
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         buffer.seek(0)
-        return send_file(buffer, mimetype="image/png")
+        response = send_file(buffer, mimetype="image/png")
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
 
     @app.post("/api/save")
     def save_segment():
+        runtime = current_runtime()
         data = request.get_json(force=True)
         segment_id = data.get("segment_id")
         view = data.get("view")
@@ -65,6 +99,7 @@ def create_app(store: ProjectStore) -> Flask:
 
     @app.post("/api/view")
     def change_view():
+        runtime = current_runtime()
         data = request.get_json(force=True)
         target_view = data.get("view")
         current_segment = data.get("segment_id") or runtime.ensure_state()["segment_id"]
@@ -95,12 +130,13 @@ def create_app(store: ProjectStore) -> Flask:
 
     @app.post("/api/project")
     def change_project():
-        nonlocal runtime
         data = request.get_json(force=True)
         project_id = data.get("project_id")
         if not project_id:
             abort(400, "project_id is required.")
-        if project_id == runtime.store.project_id:
+        current_id = session.get("project_id") or default_project_id
+        if project_id == current_id:
+            runtime = current_runtime()
             state = runtime.ensure_state()
             segment_payload = (
                 runtime.segment_payload(state["segment_id"], view=state["view"]) if state.get("segment_id") else None
@@ -113,16 +149,11 @@ def create_app(store: ProjectStore) -> Flask:
                     "segment": segment_payload,
                 }
             )
-        project_root = get_data_root() / project_id
-        if not project_root.exists():
-            abort(400, f"Project '{project_id}' not found.")
-        new_store = ProjectStore(project_id)
-        if not new_store.segments_path.exists():
-            abort(400, f"Project '{project_id}' has no processed segments.")
         try:
-            runtime = ProjectRuntime(new_store)
+            runtime = ensure_runtime(project_id)
         except RuntimeError as exc:
             abort(400, str(exc))
+        session["project_id"] = project_id
         state = runtime.ensure_state()
         segment_payload = (
             runtime.segment_payload(state["segment_id"], view=state["view"]) if state.get("segment_id") else None
@@ -138,6 +169,7 @@ def create_app(store: ProjectStore) -> Flask:
 
     @app.get("/api/export/master")
     def export_master():
+        runtime = current_runtime()
         master_path = runtime.store.master_path
         if not master_path.exists():
             abort(404, "Master transcription is not available yet.")
@@ -218,7 +250,7 @@ class ProjectRuntime:
             "view": segment.view,
             "text": text,
             "has_conflict": has_conflict,
-            "image_url": f"/api/segment/{segment.segment_id}/image",
+            "image_url": f"/api/segment/{segment.segment_id}/image?project={self.store.project_id}",
             "navigation": self.navigation_status(segment.segment_id, active_view),
         }
 
