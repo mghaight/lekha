@@ -10,7 +10,7 @@ from typing import cast, override
 
 from typer.testing import CliRunner
 
-from lekha.cli import app
+from lekha.cli import app, normalize_delete_args
 
 
 class FakeStore:
@@ -146,3 +146,51 @@ class CLITests(unittest.TestCase):
         run_server_mock.assert_called_once()
         port = cast(int, cast(dict[str, object], run_server_mock.call_args.kwargs)["port"])
         self.assertEqual(port, 9999)
+
+    def _write_manifest(self, root: Path, project_id: str, source: str = "source.pdf") -> Path:
+        project_dir = root / project_id
+        project_dir.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "project_id": project_id,
+            "source": source,
+            "languages": ["eng"],
+            "models": ["tesseract"],
+            "files": ["page.png"],
+        }
+        _ = (project_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        return project_dir
+
+    def test_cli_delete_prompt_removes_selected_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data_root = Path(tmp_dir)
+            removed_dir = self._write_manifest(data_root, "alpha")
+            retained_dir = self._write_manifest(data_root, "beta")
+
+            with patch("lekha.cli.get_data_root", return_value=data_root), patch(
+                "typer.confirm", return_value=True
+            ) as confirm_mock, patch("lekha.cli.webbrowser.open") as browser_mock:
+                args = normalize_delete_args(["--delete"])
+                result = self.runner.invoke(app, args, input="1\n")
+
+                self.assertEqual(result.exit_code, 0)
+                self.assertFalse(removed_dir.exists())
+                self.assertTrue(retained_dir.exists())
+                confirm_mock.assert_called()
+                browser_mock.assert_not_called()
+
+    def test_cli_delete_all_removes_everything(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data_root = Path(tmp_dir)
+            _ = self._write_manifest(data_root, "alpha")
+            _ = self._write_manifest(data_root, "beta")
+
+            with patch("lekha.cli.get_data_root", return_value=data_root), patch(
+                "typer.confirm", return_value=True
+            ) as confirm_mock:
+                args = normalize_delete_args(["--delete", "all"])
+                result = self.runner.invoke(app, args)
+
+                self.assertEqual(result.exit_code, 0)
+                self.assertFalse((data_root / "alpha").exists())
+                self.assertFalse((data_root / "beta").exists())
+                confirm_mock.assert_called()

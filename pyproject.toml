@@ -21,7 +21,7 @@ dependencies = [
 Homepage = "https://github.com/mghaight/lekha"
 
 [project.scripts]
-lekha = "lekha.cli:app"
+lekha = "lekha.cli:run"
 
 [tool.basedpyright]
 pythonVersion = "3.12"
