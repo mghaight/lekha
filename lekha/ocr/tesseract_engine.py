@@ -64,14 +64,14 @@ def _safe_int(value: str | int, *, minimum: int = 0) -> int:
 def run_tesseract(image_path: Path, languages: Sequence[str]) -> TesseractResult:
     """Execute Tesseract OCR, preferring pytesseract for structured output."""
     if pytesseract is not None and Output is not None:
-        image = Image.open(image_path)
-        try:
-            data = pytesseract.image_to_data(image, lang=_language_arg(languages), output_type=Output.DICT)
-        except Exception as exc:  # pragma: no cover - defensive
-            if TesseractError is not None and isinstance(exc, TesseractError):
-                message = _language_hint_message(str(exc), languages)
-                raise RuntimeError(message) from exc
-            raise
+        with Image.open(image_path) as image:
+            try:
+                data = pytesseract.image_to_data(image, lang=_language_arg(languages), output_type=Output.DICT)
+            except Exception as exc:  # pragma: no cover - defensive
+                if TesseractError is not None and isinstance(exc, TesseractError):
+                    message = _language_hint_message(str(exc), languages)
+                    raise RuntimeError(message) from exc
+                raise
         words: list[TesseractWord] = []
         lines: list[TesseractLine] = []
         current_line_id = None
