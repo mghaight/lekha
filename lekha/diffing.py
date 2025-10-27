@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
-from typing import Dict, Iterable, List, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 
 @dataclass
@@ -19,7 +19,7 @@ class WordConsensus:
     base: str
     line_index: int
     word_index: int
-    alternatives: Dict[str, str] = field(default_factory=dict)
+    alternatives: dict[str, str] = field(default_factory=dict)
 
     @property
     def has_conflict(self) -> bool:
@@ -27,12 +27,12 @@ class WordConsensus:
 
     @property
     def display_text(self) -> str:
-        alts = [self.base]
+        alts: list[str] = [self.base]
         for alt in self.alternatives.values():
             if alt and alt not in alts:
                 alts.append(alt)
         # Filter duplicates of base
-        unique = []
+        unique: list[str] = []
         for alt in alts:
             if alt not in unique:
                 unique.append(alt)
@@ -41,14 +41,14 @@ class WordConsensus:
         return "[" + "/".join(unique) + "]"
 
 
-def tokenize(text: str) -> List[str]:
+def tokenize(text: str) -> list[str]:
     return text.split()
 
 
 def compute_word_consensus(
     base_tokens: Sequence[BaseToken],
     model_texts: Mapping[str, str],
-) -> List[WordConsensus]:
+) -> list[WordConsensus]:
     consensus = [
         WordConsensus(base=token.text, line_index=token.line_index, word_index=token.word_index) for token in base_tokens
     ]

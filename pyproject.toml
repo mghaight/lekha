@@ -22,3 +22,10 @@ Homepage = "https://github.com/mghaight/lekha"
 
 [project.scripts]
 lekha = "lekha.cli:app"
+
+[tool.basedpyright]
+pythonVersion = "3.14"
+reportDeprecated = "warning"
+
+[tool.setuptools.packages.find]
+include = ["lekha*"]

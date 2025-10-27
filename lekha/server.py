@@ -6,7 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any
 
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory, session
 from PIL import Image
@@ -20,7 +20,7 @@ def create_app(store: ProjectStore) -> Flask:
     app = Flask(__name__, static_folder=str(static_dir), static_url_path="/static")
     app.secret_key = os.environ.get("LEKHA_WEB_SECRET", "lekha-dev")
     default_project_id = store.project_id
-    runtime_cache: Dict[str, ProjectRuntime] = {default_project_id: ProjectRuntime(store)}
+    runtime_cache: dict[str, ProjectRuntime] = {default_project_id: ProjectRuntime(store)}
 
     def ensure_runtime(project_id: str) -> ProjectRuntime:
         if not project_id:
@@ -69,8 +69,8 @@ def create_app(store: ProjectStore) -> Flask:
     def segment_image(segment_id: str):
         runtime = current_runtime()
         seg = runtime.get_segment(segment_id)
-        crop_info = runtime.get_crop_info(segment_id)
-        image = runtime.load_segment_image(seg, crop_info["crop"])
+        crop_bounds = runtime.get_crop_bounds(segment_id)
+        image = runtime.load_segment_image(seg, crop_bounds)
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         buffer.seek(0)
@@ -83,28 +83,44 @@ def create_app(store: ProjectStore) -> Flask:
     @app.post("/api/save")
     def save_segment():
         runtime = current_runtime()
-        data = request.get_json(force=True)
-        segment_id = data.get("segment_id")
-        view = data.get("view")
-        text = data.get("text", "")
-        action = data.get("action", "save")
-        if not segment_id or view not in {"line", "word"}:
+        raw_json = request.get_json(force=True)
+        if not isinstance(raw_json, dict):
+            abort(400, "Invalid payload.")
+        data: dict[str, object] = dict(raw_json)
+        segment_id_val = data.get("segment_id")
+        view_val = data.get("view")
+        text_val = data.get("text", "")
+        action_val = data.get("action", "save")
+        if not isinstance(segment_id_val, str):
+            abort(400, "segment_id must be a string.")
+        if not isinstance(view_val, str) or view_val not in {"line", "word"}:
             abort(400, "segment_id and view are required.")
-        runtime.save(segment_id, view, text)
-        next_id = runtime.navigate(view, segment_id, action)
-        runtime.persist_state(view, next_id)
-        payload = runtime.segment_payload(next_id, view=view)
-        payload["view"] = view
+        if not isinstance(text_val, str):
+            abort(400, "text must be a string.")
+        if not isinstance(action_val, str):
+            abort(400, "action must be a string.")
+        runtime.save(segment_id_val, view_val, text_val)
+        next_id = runtime.navigate(view_val, segment_id_val, action_val)
+        runtime.persist_state(view_val, next_id)
+        payload = runtime.segment_payload(next_id, view=view_val)
+        payload["view"] = view_val
         return jsonify(payload)
 
     @app.post("/api/view")
     def change_view():
         runtime = current_runtime()
-        data = request.get_json(force=True)
-        target_view = data.get("view")
-        current_segment = data.get("segment_id") or runtime.ensure_state()["segment_id"]
-        if target_view not in {"line", "word"}:
+        raw_json = request.get_json(force=True)
+        if not isinstance(raw_json, dict):
+            abort(400, "Invalid payload.")
+        data: dict[str, object] = dict(raw_json)
+        target_view_raw = data.get("view")
+        current_segment_raw = data.get("segment_id")
+        current_segment = (
+            current_segment_raw if isinstance(current_segment_raw, str) and current_segment_raw else runtime.ensure_state()["segment_id"]
+        )
+        if not isinstance(target_view_raw, str) or target_view_raw not in {"line", "word"}:
             abort(400, "view must be 'line' or 'word'.")
+        target_view = target_view_raw
         next_id = runtime.switch_view(current_segment, target_view)
         payload = runtime.segment_payload(next_id, view=target_view)
         payload["view"] = target_view
@@ -112,28 +128,35 @@ def create_app(store: ProjectStore) -> Flask:
 
     @app.get("/api/projects")
     def list_projects():
-        projects: List[Dict[str, str]] = []
+        projects: list[dict[str, str]] = []
         data_root = get_data_root()
         for manifest_path in data_root.glob("*/manifest.json"):
             try:
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                projects.append(
-                    {
-                        "project_id": manifest.get("project_id"),
-                        "label": manifest.get("source") or manifest.get("project_id"),
-                    }
-                )
+                raw = json.loads(manifest_path.read_text(encoding="utf-8"))
             except Exception:
                 continue
+            if not isinstance(raw, dict):
+                continue
+            project_id = raw.get("project_id")
+            if not isinstance(project_id, str):
+                continue
+            label_value = raw.get("source")
+            label = label_value if isinstance(label_value, str) else project_id
+            projects.append({"project_id": project_id, "label": label})
         projects.sort(key=lambda item: item.get("label") or item.get("project_id") or "")
         return jsonify({"projects": projects})
 
     @app.post("/api/project")
     def change_project():
-        data = request.get_json(force=True)
+        raw_json = request.get_json(force=True)
+        if not isinstance(raw_json, dict):
+            abort(400, "Invalid payload.")
+        data: dict[str, object] = dict(raw_json)
         project_id = data.get("project_id")
         if not project_id:
             abort(400, "project_id is required.")
+        if not isinstance(project_id, str):
+            abort(400, "project_id must be a string.")
         current_id = session.get("project_id") or default_project_id
         if project_id == current_id:
             runtime = current_runtime()
@@ -186,29 +209,39 @@ def run_server(app: Flask, port: int = 8765) -> None:
 class ProjectRuntime:
     """In-memory helper that mediates between Flask routes and on-disk storage."""
 
+    store: ProjectStore
+    segments: list[Segment]
+    segments_by_id: dict[str, Segment]
+    orders: dict[str, list[str]]
+    parents: dict[str, str]
+    edits: dict[str, str]
+    state: dict[str, str]
+    page_dimensions: dict[str, tuple[int, int]]
+    crop_cache: dict[str, dict[str, int]]
+
     def __init__(self, store: ProjectStore) -> None:
         self.store = store
-        self.segments: List[Segment] = store.load_segments()
+        self.segments: list[Segment] = store.load_segments()
         if not self.segments:
             raise RuntimeError("No segments available. Run OCR processing first.")
-        self.segments_by_id: Dict[str, Segment] = {segment.segment_id: segment for segment in self.segments}
-        self.orders: Dict[str, List[str]] = {
+        self.segments_by_id: dict[str, Segment] = {segment.segment_id: segment for segment in self.segments}
+        self.orders: dict[str, list[str]] = {
             "line": self._ordered_ids("line"),
             "word": self._ordered_ids("word"),
         }
-        self.parents: Dict[str, str] = {}
+        self.parents: dict[str, str] = {}
         for segment in self.segments:
             if segment.view == "line":
                 for word_id in segment.word_ids:
                     self.parents[word_id] = segment.segment_id
-        self.edits: Dict[str, str] = self.store.read_edits()
-        self.state = self.store.read_state()
-        self.page_dimensions: Dict[str, tuple[int, int]] = {}
-        self.crop_cache: Dict[str, Dict[str, object]] = {}
+        self.edits: dict[str, str] = self.store.read_edits()
+        self.state: dict[str, str] = self.store.read_state()
+        self.page_dimensions: dict[str, tuple[int, int]] = {}
+        self.crop_cache: dict[str, dict[str, int]] = {}
         self._populate_page_dimensions()
-        self.ensure_state()
+        _ = self.ensure_state()
 
-    def _ordered_ids(self, view: str) -> List[str]:
+    def _ordered_ids(self, view: str) -> list[str]:
         filtered = [seg for seg in self.segments if seg.view == view]
         filtered.sort(
             key=lambda seg: (
@@ -219,7 +252,7 @@ class ProjectRuntime:
         )
         return [seg.segment_id for seg in filtered]
 
-    def ensure_state(self) -> Dict[str, str]:
+    def ensure_state(self) -> dict[str, str]:
         default_view = "line" if self.orders["line"] else "word"
         default_segment = ""
         if self.orders[default_view]:
@@ -239,7 +272,7 @@ class ProjectRuntime:
             abort(404, f"Unknown segment {segment_id}")
         return self.segments_by_id[segment_id]
 
-    def segment_payload(self, segment_id: str, view: Optional[str] = None) -> Dict[str, object]:
+    def segment_payload(self, segment_id: str, view: str | None = None) -> dict[str, Any]:
         segment = self.get_segment(segment_id)
         text = self.get_text(segment_id)
         resolved = segment_id in self.edits
@@ -254,9 +287,9 @@ class ProjectRuntime:
             "navigation": self.navigation_status(segment.segment_id, active_view),
         }
 
-    def load_segment_image(self, segment: Segment, crop: Optional[Dict[str, int]] = None) -> Image.Image:
+    def load_segment_image(self, segment: Segment, crop: dict[str, int] | None = None) -> Image.Image:
         image_path = self.store.assets_dir / segment.page_image
-        crop_bounds = crop or self.get_crop_info(segment.segment_id)["crop"]
+        crop_bounds = crop or self.get_crop_bounds(segment.segment_id)
         with Image.open(image_path) as image:
             left = crop_bounds["left"]
             top = crop_bounds["top"]
@@ -294,7 +327,7 @@ class ProjectRuntime:
         parent_line_id = self.parents.get(word_id)
         if parent_line_id:
             parent_segment = self.get_segment(parent_line_id)
-            tokens = []
+            tokens: list[str] = []
             for child_id in parent_segment.word_ids:
                 if child_id == word_id:
                     tokens.append(text)
@@ -333,7 +366,7 @@ class ProjectRuntime:
             return next_issue_id or current_id
         return order[index]
 
-    def _next_issue(self, view: str, start_index: int) -> Optional[str]:
+    def _next_issue(self, view: str, start_index: int) -> str | None:
         order = self.orders.get(view, [])
         length = len(order)
         if not length:
@@ -385,11 +418,11 @@ class ProjectRuntime:
             return text if text else segment.consensus_text
         return segment.consensus_text
 
-    def get_crop_info(self, segment_id: str) -> Dict[str, object]:
+    def get_crop_bounds(self, segment_id: str) -> dict[str, int]:
         if segment_id not in self.crop_cache:
             segment = self.get_segment(segment_id)
             crop = self._crop_geometry(segment)
-            self.crop_cache[segment_id] = {"crop": crop}
+            self.crop_cache[segment_id] = crop
         return self.crop_cache[segment_id]
 
     def _persist(self) -> None:
@@ -398,12 +431,12 @@ class ProjectRuntime:
         self.store.write_master(master_text)
 
     def _compose_master_text(self) -> str:
-        lines = []
+        lines: list[str] = []
         for line_id in self.orders["line"]:
             lines.append(self.get_text(line_id))
         return "\n".join(lines)
 
-    def navigation_status(self, segment_id: str, view: str) -> Dict[str, bool]:
+    def navigation_status(self, segment_id: str, view: str) -> dict[str, bool]:
         if view not in {"line", "word"}:
             return {"can_prev": False, "can_next": False, "has_next_issue": False}
         order = self.orders.get(view, [])
@@ -426,7 +459,9 @@ class ProjectRuntime:
             with Image.open(image_path) as image:
                 self.page_dimensions[segment.page_image] = image.size
 
-    def _crop_geometry(self, segment: Segment, padding_x_ratio: float = 0.1, padding_y_ratio: float = 0.5):
+    def _crop_geometry(
+        self, segment: Segment, padding_x_ratio: float = 0.1, padding_y_ratio: float = 0.5
+    ) -> dict[str, int]:
         width, height = self.page_dimensions[segment.page_image]
         bbox = segment.bbox or {}
         base_x = bbox.get("x", 0)

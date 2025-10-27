@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Sequence
+from collections.abc import Sequence
 
 from PIL import Image
 
@@ -38,17 +38,40 @@ class TesseractLine:
     width: int
     height: int
     line_index: int
-    words: List[TesseractWord]
+    words: list[TesseractWord]
 
 
 @dataclass
 class TesseractResult:
     text: str
-    lines: List[TesseractLine]
+    lines: list[TesseractLine]
 
 
 def _language_arg(languages: Sequence[str]) -> str:
     return "+".join(languages) if languages else "eng"
+
+
+def _safe_int(value: str | int, *, minimum: int = 0) -> int:
+    """Convert pytesseract numeric fields to ints, with defensive fallbacks."""
+    if isinstance(value, int):
+        return max(value, minimum)
+    try:
+        return max(int(value), minimum)
+    except (TypeError, ValueError):
+        return minimum
+
+
+def _coerce_output(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return value.decode(errors="ignore")
+    if isinstance(value, str):
+        return value
+    return str(value)
 
 
 def run_tesseract(image_path: Path, languages: Sequence[str]) -> TesseractResult:
@@ -57,24 +80,26 @@ def run_tesseract(image_path: Path, languages: Sequence[str]) -> TesseractResult
         image = Image.open(image_path)
         try:
             data = pytesseract.image_to_data(image, lang=_language_arg(languages), output_type=Output.DICT)
-        except TesseractError as exc:  # type: ignore[misc]
-            message = _language_hint_message(str(exc), languages)
-            raise RuntimeError(message) from exc
-        words: List[TesseractWord] = []
-        lines: List[TesseractLine] = []
+        except Exception as exc:  # pragma: no cover - defensive
+            if TesseractError is not None and isinstance(exc, TesseractError):
+                message = _language_hint_message(str(exc), languages)
+                raise RuntimeError(message) from exc
+            raise
+        words: list[TesseractWord] = []
+        lines: list[TesseractLine] = []
         current_line_id = None
-        current_line_words: List[TesseractWord] = []
+        current_line_words: list[TesseractWord] = []
         current_bbox = None
         current_line_index = -1
-        tokens: List[str] = []
+        tokens: list[str] = []
         num_entries = len(data["text"])
         for idx in range(num_entries):
             text = data["text"][idx].strip()
             if not text:
                 continue
-            line_num = data["line_num"][idx]
-            block_num = data["block_num"][idx]
-            par_num = data["par_num"][idx]
+            line_num = _safe_int(data["line_num"][idx])
+            block_num = _safe_int(data["block_num"][idx])
+            par_num = _safe_int(data["par_num"][idx])
             compound_index = (block_num, par_num, line_num)
             if current_line_id != compound_index:
                 if current_line_words:
@@ -104,10 +129,10 @@ def run_tesseract(image_path: Path, languages: Sequence[str]) -> TesseractResult
                 current_line_index += 1
             word = TesseractWord(
                 text=text,
-                left=data["left"][idx],
-                top=data["top"][idx],
-                width=data["width"][idx],
-                height=data["height"][idx],
+                left=_safe_int(data["left"][idx]),
+                top=_safe_int(data["top"][idx]),
+                width=_safe_int(data["width"][idx], minimum=0),
+                height=_safe_int(data["height"][idx], minimum=0),
                 line_index=current_line_index,
                 word_index=len(current_line_words),
             )
@@ -151,9 +176,11 @@ def run_tesseract(image_path: Path, languages: Sequence[str]) -> TesseractResult
             _language_arg(languages),
         ]
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            _ = subprocess.run(cmd, check=True, capture_output=True, text=True)
         except subprocess.CalledProcessError as exc:
-            message = exc.stderr or exc.stdout or str(exc)
+            stderr = _coerce_output(exc.stderr)
+            stdout = _coerce_output(exc.stdout)
+            message = stderr or stdout or str(exc)
             hint = _language_hint_message(message, languages)
             raise RuntimeError(hint) from exc
         text = (output_base.with_suffix(".txt")).read_text(encoding="utf-8")

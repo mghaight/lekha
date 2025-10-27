@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Tuple
+from collections.abc import Iterable, Mapping
 
 from PIL import Image
 
@@ -22,22 +22,22 @@ SUPPORTED_MODELS = {"tesseract"}
 class NormalizedLine:
     line_index: int
     text: str
-    bbox: Dict[str, int]
-    words: List["NormalizedWord"]
+    bbox: dict[str, int]
+    words: list["NormalizedWord"]
 
 
 @dataclass
 class NormalizedWord:
     text: str
-    bbox: Dict[str, int]
+    bbox: dict[str, int]
     line_index: int
     word_index: int
 
 
 def process_inputs(
     source_paths: Iterable[Path],
-    languages: List[str],
-    models: List[str],
+    languages: list[str],
+    models: list[str],
     store: ProjectStore,
     source: str,
 ) -> None:
@@ -62,8 +62,8 @@ def process_inputs(
 
     page_images = _prepare_page_images(source_paths, store)
 
-    segments: List[Segment] = []
-    master_lines: Dict[Tuple[int, int], str] = {}
+    segments: list[Segment] = []
+    master_lines: dict[tuple[int, int], str] = {}
 
     for page_index, image_path in enumerate(page_images):
         absolute_image_path = store.assets_dir / image_path
@@ -71,7 +71,7 @@ def process_inputs(
         width, height = image.size
 
         tess_result = _run_tesseract_with_logging(absolute_image_path, languages)
-        other_outputs: Dict[str, str] = {"tesseract": tess_result.text}
+        other_outputs: dict[str, str] = {"tesseract": tess_result.text}
 
         _persist_model_outputs(store, page_index, other_outputs)
 
@@ -113,9 +113,9 @@ def process_inputs(
         store.write_state({"view": "line", "segment_id": segments_sorted[0].segment_id if segments_sorted else ""})
 
 
-def _prepare_page_images(source_paths: List[Path], store: ProjectStore) -> List[Path]:
+def _prepare_page_images(source_paths: list[Path], store: ProjectStore) -> list[Path]:
     """Copy or render source files into per-page PNG images under the project assets folder."""
-    page_images: List[Path] = []
+    page_images: list[Path] = []
     page_counter = 0
     for source_path in source_paths:
         suffix = source_path.suffix.lower()
@@ -141,7 +141,7 @@ def _prepare_page_images(source_paths: List[Path], store: ProjectStore) -> List[
     return page_images
 
 
-def _run_tesseract_with_logging(image_path: Path, languages: List[str]) -> TesseractResult:
+def _run_tesseract_with_logging(image_path: Path, languages: list[str]) -> TesseractResult:
     try:
         return run_tesseract(image_path, languages)
     except Exception as exc:  # pragma: no cover - runtime safeguard
@@ -154,16 +154,16 @@ def _persist_model_outputs(store: ProjectStore, page_index: int, outputs: Mappin
         model_dir = store.outputs_dir / model_name
         model_dir.mkdir(parents=True, exist_ok=True)
         out_path = model_dir / f"page_{page_index:04d}.txt"
-        out_path.write_text(text or "", encoding="utf-8")
+        _ = out_path.write_text(text or "", encoding="utf-8")
 
 
 def _normalize_segments(
     tess_result: TesseractResult,
     image_width: int,
     image_height: int,
-) -> Tuple[List[NormalizedLine], List[BaseToken]]:
-    lines: List[NormalizedLine] = []
-    base_tokens: List[BaseToken] = []
+) -> tuple[list[NormalizedLine], list[BaseToken]]:
+    lines: list[NormalizedLine] = []
+    base_tokens: list[BaseToken] = []
     if not tess_result.lines:
         default_bbox = {"x": 0, "y": 0, "w": image_width, "h": image_height}
         default_line = NormalizedLine(line_index=0, text=tess_result.text.strip(), bbox=default_bbox, words=[])
@@ -216,7 +216,7 @@ def _normalize_segments(
     return lines, base_tokens
 
 
-def _allocate_bbox_for_token(line_bbox: Dict[str, int], index: int, total: int) -> Dict[str, int]:
+def _allocate_bbox_for_token(line_bbox: dict[str, int], index: int, total: int) -> dict[str, int]:
     if total <= 0:
         return dict(line_bbox)
     proportion = 1 / total
@@ -228,19 +228,19 @@ def _allocate_bbox_for_token(line_bbox: Dict[str, int], index: int, total: int) 
 def _build_segments(
     page_index: int,
     image_path: Path,
-    lines: List[NormalizedLine],
-    word_consensus: List[WordConsensus],
-    model_outputs: Mapping[str, str],
-) -> Tuple[List[Segment], List[Segment]]:
-    word_segments: List[Segment] = []
-    line_segments: List[Segment] = []
+    lines: list[NormalizedLine],
+    word_consensus: list[WordConsensus],
+    _model_outputs: Mapping[str, str],
+) -> tuple[list[Segment], list[Segment]]:
+    word_segments: list[Segment] = []
+    line_segments: list[Segment] = []
 
-    consensus_by_line: Dict[int, List[WordConsensus]] = {}
+    consensus_by_line: dict[int, list[WordConsensus]] = {}
     for entry in word_consensus:
         consensus_by_line.setdefault(entry.line_index, []).append(entry)
 
     for line in lines:
-        line_word_ids: List[str] = []
+        line_word_ids: list[str] = []
         consensus_entries = consensus_by_line.get(line.line_index, [])
         consensus_map = {
             (entry.line_index, entry.word_index): entry for entry in consensus_entries
@@ -308,10 +308,10 @@ def _segment_id(page_index: int, line_index: int, word_index: int | None, view: 
     return f"p{page_index:03d}_l{line_index:04d}_w{word_index or 0:04d}"
 
 
-def _compose_line_alternatives(consensus_entries: List[WordConsensus]) -> Dict[str, str]:
-    alternatives: Dict[str, List[str]] = {}
+def _compose_line_alternatives(consensus_entries: list[WordConsensus]) -> dict[str, str]:
+    alternatives: dict[str, list[str]] = {}
     for entry in consensus_entries:
         for model, text in entry.alternatives.items():
-            alternatives.setdefault(model, [])
-            alternatives[model].append(text if text else entry.base)
+            token_list = alternatives.setdefault(model, [])
+            token_list.append(text if text else entry.base)
     return {model: " ".join(tokens).strip() for model, tokens in alternatives.items()}

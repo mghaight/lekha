@@ -6,7 +6,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, cast
 
 from .config import get_data_root
 
@@ -29,27 +29,37 @@ class Segment:
     view: str  # "line" or "word"
     page_index: int
     line_index: int
-    word_index: Optional[int]
+    word_index: int | None
     page_image: str
-    bbox: Dict[str, int]  # x, y, w, h
+    bbox: dict[str, int]  # x, y, w, h
     base_text: str
     consensus_text: str
     has_conflict: bool
-    alternatives: Dict[str, str] = field(default_factory=dict)
-    word_ids: List[str] = field(default_factory=list)
+    alternatives: dict[str, str] = field(default_factory=dict)
+    word_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
 class ProjectManifest:
     project_id: str
     source: str
-    languages: List[str]
-    models: List[str]
-    files: List[str]
+    languages: list[str]
+    models: list[str]
+    files: list[str]
 
 
 class ProjectStore:
     """Coordinates persistence to the on-disk project directory."""
+
+    project_id: str
+    root: Path
+    outputs_dir: Path
+    assets_dir: Path
+    meta_path: Path
+    segments_path: Path
+    edits_path: Path
+    state_path: Path
+    master_path: Path
 
     def __init__(self, project_id: str) -> None:
         self.project_id = project_id
@@ -69,38 +79,50 @@ class ProjectStore:
         with self.meta_path.open("w", encoding="utf-8") as fh:
             json.dump(manifest.__dict__, fh, indent=2)
 
-    def load_manifest(self) -> Optional[ProjectManifest]:
+    def load_manifest(self) -> ProjectManifest | None:
         if not self.meta_path.exists():
             return None
-        data = json.loads(self.meta_path.read_text(encoding="utf-8"))
+        raw = json.loads(self.meta_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("Invalid manifest format.")
+        data = cast(dict[str, Any], raw)
         return ProjectManifest(**data)
 
-    def write_segments(self, segments: List[Segment]) -> None:
+    def write_segments(self, segments: list[Segment]) -> None:
         payload = [segment.__dict__ for segment in segments]
         with self.segments_path.open("w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=2)
 
-    def load_segments(self) -> List[Segment]:
+    def load_segments(self) -> list[Segment]:
         if not self.segments_path.exists():
             return []
-        data = json.loads(self.segments_path.read_text(encoding="utf-8"))
-        return [Segment(**item) for item in data]
+        raw = json.loads(self.segments_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, list):
+            raise ValueError("Invalid segments data.")
+        items = cast(list[dict[str, Any]], raw)
+        return [Segment(**item) for item in items]
 
-    def read_edits(self) -> Dict[str, str]:
+    def read_edits(self) -> dict[str, str]:
         if not self.edits_path.exists():
             return {}
-        return json.loads(self.edits_path.read_text(encoding="utf-8"))
+        raw = json.loads(self.edits_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("Invalid edits data.")
+        return cast(dict[str, str], raw)
 
-    def write_edits(self, edits: Dict[str, str]) -> None:
+    def write_edits(self, edits: dict[str, str]) -> None:
         with self.edits_path.open("w", encoding="utf-8") as fh:
             json.dump(edits, fh, indent=2)
 
-    def read_state(self) -> Dict[str, str]:
+    def read_state(self) -> dict[str, str]:
         if not self.state_path.exists():
             return {}
-        return json.loads(self.state_path.read_text(encoding="utf-8"))
+        raw = json.loads(self.state_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("Invalid state data.")
+        return cast(dict[str, str], raw)
 
-    def write_state(self, state: Dict[str, str]) -> None:
+    def write_state(self, state: dict[str, str]) -> None:
         with self.state_path.open("w", encoding="utf-8") as fh:
             json.dump(state, fh, indent=2)
 
