@@ -1,7 +1,7 @@
 # Lekha <img src="./assets/logo.png" alt="lekha logo" align="right" height="138">
 
 
-Easier manuscript transcription with OCR correction suite.
+Easier manuscript transcription. 
 
 
 ## Quickstart
