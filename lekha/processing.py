@@ -10,12 +10,12 @@ from typing import Dict, Iterable, List, Mapping, Tuple
 from PIL import Image
 
 from .diffing import BaseToken, WordConsensus, compute_word_consensus
-from .ocr import KrakenResult, TesseractResult, run_kraken, run_tesseract
+from .ocr import TesseractResult, run_tesseract
 from .project import ProjectManifest, ProjectStore, Segment
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_MODELS = {"tesseract", "kraken"}
+SUPPORTED_MODELS = {"tesseract"}
 
 
 @dataclass
@@ -43,7 +43,7 @@ def process_inputs(
 ) -> None:
     """Process the provided sources with OCR models and persist results."""
     languages = languages or ["eng"]
-    selected_models = list(dict.fromkeys(models or ["tesseract", "kraken"]))
+    selected_models = list(dict.fromkeys(models or ["tesseract"]))
     for model in selected_models:
         if model not in SUPPORTED_MODELS:
             raise ValueError(f"Unsupported OCR model: {model}")
@@ -73,16 +73,12 @@ def process_inputs(
         tess_result = _run_tesseract_with_logging(absolute_image_path, languages)
         other_outputs: Dict[str, str] = {"tesseract": tess_result.text}
 
-        if "kraken" in selected_models:
-            kraken = _run_kraken_with_logging(absolute_image_path, languages)
-            other_outputs["kraken"] = kraken.text
-
         _persist_model_outputs(store, page_index, other_outputs)
 
         normalized_lines, base_tokens = _normalize_segments(tess_result, width, height)
         word_consensus = compute_word_consensus(
             base_tokens,
-            {name: text for name, text in other_outputs.items() if name != "tesseract"},
+            {},
         )
         word_segments, line_segments = _build_segments(
             page_index,
@@ -150,17 +146,6 @@ def _run_tesseract_with_logging(image_path: Path, languages: List[str]) -> Tesse
         return run_tesseract(image_path, languages)
     except Exception as exc:  # pragma: no cover - runtime safeguard
         logger.error("Tesseract OCR failed for %s: %s", image_path, exc)
-        raise
-
-
-def _run_kraken_with_logging(image_path: Path, languages: List[str]) -> KrakenResult:
-    try:
-        result = run_kraken(image_path, languages)
-        if not result.text:
-            logger.warning("Kraken OCR produced no text for %s. Check installation.", image_path)
-        return result
-    except Exception as exc:  # pragma: no cover - runtime safeguard
-        logger.error("Kraken OCR failed for %s: %s", image_path, exc)
         raise
 
 

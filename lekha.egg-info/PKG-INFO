@@ -14,12 +14,13 @@ Requires-Dist: pdf2image>=1.16
 
 # Lekha
 
-Lekha is a CLI-driven workflow for manuscript transcription that combines multiple OCR engines, highlights disagreements, and launches a lightweight web editor for human review.
+Lekha is a CLI-driven workflow for manuscript transcription that runs OCR, highlights disagreements, and launches a lightweight web editor for human review.
 
 ## Features
 
-- Run multiple OCR engines (Tesseract and Kraken by default) against images or PDFs.
+- Run OCR over images or PDFs with Tesseract (additional engines can be added later).
 - Compute word-level consensus and conflicts for targeted review.
+- Preserve per-word metadata so you can plug in additional OCR engines for double-blind comparison in the future.
 - Store project data in the appropriate XDG/AppData location for later resumption.
 - Launch a local web viewer to navigate line-by-line or word-by-word, view cropped manuscript images, and correct transcription text.
 
@@ -33,7 +34,9 @@ lekha /path/to/manuscript -l eng
 If you invoke `lekha` without arguments, it will offer previously processed projects to resume.
 
 > **Note**  
-> OCR engines such as Tesseract and Kraken must be installed separately and available on your PATH. Lekha uses `pytesseract` when possible and falls back to the `tesseract` CLI. For Kraken, set the `LEKHA_KRAKEN_MODEL` environment variable to the path of the recognition model (`.mlmodel`) you want to use if the default model is not available in your Kraken installation.
+> Tesseract must be installed separately and available on your PATH. Lekha uses `pytesseract` when possible and falls back to the `tesseract` CLI.
+
+The CLI keeps the `--model` flag so you can plug in a second OCR engine later; at the moment only `tesseract` is supported.
 
 ## Development
 

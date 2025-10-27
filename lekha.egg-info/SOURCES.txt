@@ -14,5 +14,4 @@ lekha.egg-info/entry_points.txt
 lekha.egg-info/requires.txt
 lekha.egg-info/top_level.txt
 lekha/ocr/__init__.py
-lekha/ocr/kraken_engine.py
 lekha/ocr/tesseract_engine.py

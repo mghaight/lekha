@@ -52,7 +52,7 @@ def main(
     ctx: typer.Context,
     manuscript: Optional[Path] = typer.Argument(None, exists=True, readable=True, resolve_path=True),
     language: List[str] = typer.Option([], "-l", "--lang", help="Languages passed to the OCR engines"),
-    models: List[str] = typer.Option(["tesseract", "kraken"], "--model", help="OCR models to run"),
+    models: List[str] = typer.Option(["tesseract"], "--model", help="OCR models to run (currently only tesseract)"),
     port: int = typer.Option(8765, help="Port for the local web viewer"),
     no_browser: bool = typer.Option(False, help="Do not automatically open the browser"),
 ) -> None:
