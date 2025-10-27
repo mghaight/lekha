@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Lekha Manuscript Viewer</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main>
+      <section class="view-toggle">
+        <label><input type="radio" name="view" value="word" /> Word view</label>
+        <label><input type="radio" name="view" value="line" checked /> Line view</label>
+      </section>
+      <section class="preview">
+        <header>Manuscript:</header>
+        <div class="image-frame">
+          <img id="segment-image" alt="Segment preview" />
+          <div id="zoom-preview" class="zoom-preview"></div>
+        </div>
+      </section>
+      <section class="transcription">
+        <header>Transcription:</header>
+        <textarea id="transcription-box" rows="5"></textarea>
+      </section>
+      <section class="actions">
+        <button data-action="save">Save changes</button>
+        <button data-action="prev">Prev</button>
+        <button data-action="next">Next</button>
+        <button data-action="next_issue">Next issue</button>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
