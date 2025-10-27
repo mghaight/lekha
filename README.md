@@ -7,6 +7,8 @@ Easier manuscript transcription.
 ## Quickstart
 
 ```bash
+# python -m venv .venv
+# source .venv/bin/activate
 python -m pip install -e .
 lekha -l LANG /path/to/manuscript
 ```
@@ -17,11 +19,3 @@ projects to resume.
 > **Note**  
 > Tesseract must be installed separately and available on your PATH. Lekha uses
 > `pytesseract` when possible and falls back to the `tesseract` CLI.
-
-
-## Development
-
-- `typer` powers the CLI.
-- `Flask` serves the API and static assets for the web viewer.
-- Tests are not included yet; verify manually by running the CLI and exercising
-  the viewer.
