@@ -12,10 +12,11 @@ from PIL import Image
 
 try:
     import pytesseract
-    from pytesseract import Output
+    from pytesseract import Output, TesseractError
 except ImportError:  # pragma: no cover - surface at runtime
     pytesseract = None
     Output = None
+    TesseractError = None
 
 
 @dataclass
@@ -54,7 +55,11 @@ def run_tesseract(image_path: Path, languages: Sequence[str]) -> TesseractResult
     """Execute Tesseract OCR, preferring pytesseract for structured output."""
     if pytesseract is not None and Output is not None:
         image = Image.open(image_path)
-        data = pytesseract.image_to_data(image, lang=_language_arg(languages), output_type=Output.DICT)
+        try:
+            data = pytesseract.image_to_data(image, lang=_language_arg(languages), output_type=Output.DICT)
+        except TesseractError as exc:  # type: ignore[misc]
+            message = _language_hint_message(str(exc), languages)
+            raise RuntimeError(message) from exc
         words: List[TesseractWord] = []
         lines: List[TesseractLine] = []
         current_line_id = None
@@ -145,8 +150,30 @@ def run_tesseract(image_path: Path, languages: Sequence[str]) -> TesseractResult
             "-l",
             _language_arg(languages),
         ]
-        subprocess.run(cmd, check=True)
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as exc:
+            message = exc.stderr or exc.stdout or str(exc)
+            hint = _language_hint_message(message, languages)
+            raise RuntimeError(hint) from exc
         text = (output_base.with_suffix(".txt")).read_text(encoding="utf-8")
     # Without structured data, degrade gracefully to a single line.
     single_line = TesseractLine(text=text.replace("\n", " "), left=0, top=0, width=0, height=0, line_index=0, words=[])
     return TesseractResult(text=text, lines=[single_line])
+
+
+def _language_hint_message(raw_message: str, languages: Sequence[str]) -> str:
+    lang = _language_arg(languages)
+    normalized = raw_message.lower()
+    missing_patterns = [
+        "error opening data file",
+        "failed loading language",
+        "couldn't load any languages",
+        "could not initialize tesseract",
+    ]
+    if any(pattern in normalized for pattern in missing_patterns):
+        return (
+            f"Tesseract is missing the traineddata files required for language '{lang}'. "
+            "Install the appropriate language data (update your tessdata directory or set TESSDATA_PREFIX) and retry."
+        )
+    return raw_message.strip() or "Tesseract OCR failed."
