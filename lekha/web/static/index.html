@@ -21,7 +21,16 @@
       </div>
     </section>
     <section class="preview">
-      <header>Manuscript:</header>
+      <div class="preview-header">
+        <header>Manuscript:</header>
+        <div class="viewer-toggles">
+          <label class="toggle">
+            <input type="checkbox" id="invert-toggle" />
+            <span class="toggle-switch" aria-hidden="true"></span>
+            <span class="toggle-label">Invert colors</span>
+          </label>
+        </div>
+      </div>
       <div class="image-frame">
         <img id="segment-image" alt="Segment preview" />
         <div id="zoom-preview" class="zoom-preview"></div>

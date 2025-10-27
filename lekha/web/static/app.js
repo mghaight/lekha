@@ -3,6 +3,7 @@ const state = {
   segmentId: null,
   projectId: null,
   dirty: false,
+  invertColors: false,
 };
 
 const imageFrame = document.querySelector(".image-frame");
@@ -16,6 +17,7 @@ const nextIssueButton = document.querySelector('[data-action="next_issue"]');
 const projectSelect = document.getElementById("project-select");
 const exportButton = document.getElementById("export-button");
 const zoomPreview = document.getElementById("zoom-preview");
+const invertToggle = document.getElementById("invert-toggle");
 
 const ZOOM_SCALE = 2.5;
 const ZOOM_BOX_SIZE = 180;
@@ -76,6 +78,18 @@ function updateImage(src, hasConflict) {
     }
   }
   imageFrame.classList.toggle("conflict", Boolean(hasConflict));
+  applyImageEffects();
+}
+
+function applyImageEffects() {
+  if (!imageFrame) {
+    return;
+  }
+  const hasImage = Boolean(imageEl && imageEl.getAttribute("src"));
+  imageFrame.classList.toggle("invert", Boolean(state.invertColors));
+  if (zoomPreview) {
+    zoomPreview.classList.toggle("invert", Boolean(state.invertColors));
+  }
 }
 
 function applySegmentPayload(payload) {
@@ -230,6 +244,15 @@ buttons.forEach((button) => {
     await save(action);
   });
 });
+
+if (invertToggle) {
+  invertToggle.addEventListener("change", (event) => {
+    state.invertColors = event.target.checked;
+    applyImageEffects();
+  });
+}
+
+applyImageEffects();
 
 if (projectSelect) {
   projectSelect.addEventListener("change", async (event) => {
