@@ -1,40 +1,47 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Lekha Manuscript Viewer</title>
-    <link rel="stylesheet" href="/static/styles.css" />
-  </head>
-  <body>
-    <main>
-      <section class="view-toggle">
-        <div class="view-options">
-          <label><input type="radio" name="view" value="word" /> Word view</label>
-          <label><input type="radio" name="view" value="line" checked /> Line view</label>
-        </div>
-        <div class="project-controls">
-          <select id="project-select" aria-label="Select project"></select>
-          <button id="export-button" type="button">Export</button>
-        </div>
-      </section>
-      <section class="preview">
-        <header>Manuscript:</header>
-        <div class="image-frame">
-          <img id="segment-image" alt="Segment preview" />
-          <div id="zoom-preview" class="zoom-preview"></div>
-        </div>
-      </section>
-      <section class="transcription">
-        <header>Transcription:</header>
-        <textarea id="transcription-box" rows="5"></textarea>
-      </section>
-      <section class="actions">
-        <button data-action="save">Save changes</button>
-        <button data-action="prev">Prev</button>
-        <button data-action="next">Next</button>
-        <button data-action="next_issue">Next issue</button>
-      </section>
-    </main>
-    <script src="/static/app.js"></script>
-  </body>
+
+<head>
+  <meta charset="utf-8" />
+  <title>Lekha Manuscript Viewer</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+
+<body>
+  <main>
+    <h1>Lekha Manuscript Viewer</h1>
+    <section class="view-toggle">
+      <div class="view-options">
+        <label><input type="radio" name="view" value="word" /> Word view</label>
+        <label><input type="radio" name="view" value="line" checked /> Line view</label>
+      </div>
+      <div class="project-controls">
+        <select id="project-select" aria-label="Select project"></select>
+        <button id="export-button" type="button">Export</button>
+      </div>
+    </section>
+    <section class="preview">
+      <header>Manuscript:</header>
+      <div class="image-frame">
+        <img id="segment-image" alt="Segment preview" />
+        <div id="zoom-preview" class="zoom-preview"></div>
+      </div>
+    </section>
+    <section class="transcription">
+      <header>Transcription:</header>
+      <textarea id="transcription-box" rows="5"></textarea>
+    </section>
+    <section class="actions">
+      <button data-action="save">Save changes</button>
+      <button data-action="prev">Prev</button>
+      <button data-action="next">Next</button>
+      <button data-action="next_issue">Next issue</button>
+    </section>
+    <span>This software is distributed under the <a href="https://opensource.org/license/mit" target="_blank">MIT
+        license</a>.</span>
+    <span>&copy; 2025 Mackenzie G. Haight</span>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+
 </html>
