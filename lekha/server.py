@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -10,6 +11,7 @@ from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 from PIL import Image
 
 from .project import ProjectStore, Segment
+from .config import get_data_root
 
 
 def create_app(store: ProjectStore) -> Flask:
@@ -24,12 +26,15 @@ def create_app(store: ProjectStore) -> Flask:
     @app.get("/api/state")
     def get_state():
         state = runtime.ensure_state()
-        return jsonify(state)
+        payload = dict(state)
+        payload["project_id"] = runtime.store.project_id
+        return jsonify(payload)
 
     @app.get("/api/segment/<segment_id>")
     def get_segment(segment_id: str):
         seg = runtime.get_segment(segment_id)
-        payload = runtime.segment_payload(seg.segment_id)
+        view = request.args.get("view")
+        payload = runtime.segment_payload(seg.segment_id, view=view)
         return jsonify(payload)
 
     @app.get("/api/segment/<segment_id>/image")
@@ -54,7 +59,7 @@ def create_app(store: ProjectStore) -> Flask:
         runtime.save(segment_id, view, text)
         next_id = runtime.navigate(view, segment_id, action)
         runtime.persist_state(view, next_id)
-        payload = runtime.segment_payload(next_id)
+        payload = runtime.segment_payload(next_id, view=view)
         payload["view"] = view
         return jsonify(payload)
 
@@ -66,9 +71,78 @@ def create_app(store: ProjectStore) -> Flask:
         if target_view not in {"line", "word"}:
             abort(400, "view must be 'line' or 'word'.")
         next_id = runtime.switch_view(current_segment, target_view)
-        payload = runtime.segment_payload(next_id)
+        payload = runtime.segment_payload(next_id, view=target_view)
         payload["view"] = target_view
         return jsonify(payload)
+
+    @app.get("/api/projects")
+    def list_projects():
+        projects: List[Dict[str, str]] = []
+        data_root = get_data_root()
+        for manifest_path in data_root.glob("*/manifest.json"):
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                projects.append(
+                    {
+                        "project_id": manifest.get("project_id"),
+                        "label": manifest.get("source") or manifest.get("project_id"),
+                    }
+                )
+            except Exception:
+                continue
+        projects.sort(key=lambda item: item.get("label") or item.get("project_id") or "")
+        return jsonify({"projects": projects})
+
+    @app.post("/api/project")
+    def change_project():
+        nonlocal runtime
+        data = request.get_json(force=True)
+        project_id = data.get("project_id")
+        if not project_id:
+            abort(400, "project_id is required.")
+        if project_id == runtime.store.project_id:
+            state = runtime.ensure_state()
+            segment_payload = (
+                runtime.segment_payload(state["segment_id"], view=state["view"]) if state.get("segment_id") else None
+            )
+            return jsonify(
+                {
+                    "project_id": runtime.store.project_id,
+                    "view": state["view"],
+                    "segment_id": state["segment_id"],
+                    "segment": segment_payload,
+                }
+            )
+        project_root = get_data_root() / project_id
+        if not project_root.exists():
+            abort(400, f"Project '{project_id}' not found.")
+        new_store = ProjectStore(project_id)
+        if not new_store.segments_path.exists():
+            abort(400, f"Project '{project_id}' has no processed segments.")
+        try:
+            runtime = ProjectRuntime(new_store)
+        except RuntimeError as exc:
+            abort(400, str(exc))
+        state = runtime.ensure_state()
+        segment_payload = (
+            runtime.segment_payload(state["segment_id"], view=state["view"]) if state.get("segment_id") else None
+        )
+        return jsonify(
+            {
+                "project_id": runtime.store.project_id,
+                "view": state["view"],
+                "segment_id": state["segment_id"],
+                "segment": segment_payload,
+            }
+        )
+
+    @app.get("/api/export/master")
+    def export_master():
+        master_path = runtime.store.master_path
+        if not master_path.exists():
+            abort(404, "Master transcription is not available yet.")
+        download_name = f"{runtime.store.project_id}_master.txt"
+        return send_file(master_path, mimetype="text/plain", as_attachment=True, download_name=download_name)
 
     return app
 
@@ -133,17 +207,19 @@ class ProjectRuntime:
             abort(404, f"Unknown segment {segment_id}")
         return self.segments_by_id[segment_id]
 
-    def segment_payload(self, segment_id: str) -> Dict[str, object]:
+    def segment_payload(self, segment_id: str, view: Optional[str] = None) -> Dict[str, object]:
         segment = self.get_segment(segment_id)
         text = self.get_text(segment_id)
         resolved = segment_id in self.edits
         has_conflict = segment.has_conflict and not resolved
+        active_view = view if view in {"line", "word"} else segment.view
         return {
             "segment_id": segment.segment_id,
             "view": segment.view,
             "text": text,
             "has_conflict": has_conflict,
             "image_url": f"/api/segment/{segment.segment_id}/image",
+            "navigation": self.navigation_status(segment.segment_id, active_view),
         }
 
     def load_segment_image(self, segment: Segment, crop: Optional[Dict[str, int]] = None) -> Image.Image:
@@ -230,8 +306,8 @@ class ProjectRuntime:
         length = len(order)
         if not length:
             return None
-        for offset in range(1, length):
-            idx = (start_index + offset) % length
+        begin = max(start_index + 1, 0)
+        for idx in range(begin, length):
             seg_id = order[idx]
             segment = self.segments_by_id[seg_id]
             if segment.has_conflict and seg_id not in self.edits:
@@ -294,6 +370,21 @@ class ProjectRuntime:
         for line_id in self.orders["line"]:
             lines.append(self.get_text(line_id))
         return "\n".join(lines)
+
+    def navigation_status(self, segment_id: str, view: str) -> Dict[str, bool]:
+        if view not in {"line", "word"}:
+            return {"can_prev": False, "can_next": False, "has_next_issue": False}
+        order = self.orders.get(view, [])
+        if not order:
+            return {"can_prev": False, "can_next": False, "has_next_issue": False}
+        try:
+            index = order.index(segment_id)
+        except ValueError:
+            return {"can_prev": False, "can_next": False, "has_next_issue": False}
+        can_prev = index > 0
+        can_next = index < len(order) - 1
+        has_next_issue = self._next_issue(view, index) is not None
+        return {"can_prev": can_prev, "can_next": can_next, "has_next_issue": has_next_issue}
 
     def _populate_page_dimensions(self) -> None:
         for segment in self.segments:

@@ -19,7 +19,7 @@ lekha /path/to/manuscript -l eng
 If you invoke `lekha` without arguments, it will offer previously processed projects to resume.
 
 > **Note**  
-> OCR engines such as Tesseract and Kraken must be installed separately and available on your PATH. Lekha uses `pytesseract` when possible and falls back to the `tesseract` CLI.
+> OCR engines such as Tesseract and Kraken must be installed separately and available on your PATH. Lekha uses `pytesseract` when possible and falls back to the `tesseract` CLI. For Kraken, set the `LEKHA_KRAKEN_MODEL` environment variable to the path of the recognition model (`.mlmodel`) you want to use if the default model is not available in your Kraken installation.
 
 ## Development
 

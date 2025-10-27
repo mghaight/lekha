@@ -8,8 +8,14 @@
   <body>
     <main>
       <section class="view-toggle">
-        <label><input type="radio" name="view" value="word" /> Word view</label>
-        <label><input type="radio" name="view" value="line" checked /> Line view</label>
+        <div class="view-options">
+          <label><input type="radio" name="view" value="word" /> Word view</label>
+          <label><input type="radio" name="view" value="line" checked /> Line view</label>
+        </div>
+        <div class="project-controls">
+          <select id="project-select" aria-label="Select project"></select>
+          <button id="export-button" type="button">Export</button>
+        </div>
       </section>
       <section class="preview">
         <header>Manuscript:</header>
