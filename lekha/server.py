@@ -6,12 +6,13 @@ import io
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory, session
+from flask.typing import ResponseReturnValue
 from PIL import Image
 
-from .project import ProjectStore, Segment
+from .project import JSONValue, ProjectStore, Segment
 from .config import get_data_root
 
 
@@ -21,6 +22,15 @@ def create_app(store: ProjectStore) -> Flask:
     app.secret_key = os.environ.get("LEKHA_WEB_SECRET", "lekha-dev")
     default_project_id = store.project_id
     runtime_cache: dict[str, ProjectRuntime] = {default_project_id: ProjectRuntime(store)}
+
+    def _payload_dict(raw: object, *, error_message: str) -> dict[str, object]:
+        if not isinstance(raw, dict):
+            abort(400, error_message)
+        result: dict[str, object] = {}
+        for key, value in cast(dict[object, object], raw).items():
+            if isinstance(key, str):
+                result[key] = value
+        return result
 
     def ensure_runtime(project_id: str) -> ProjectRuntime:
         if not project_id:
@@ -37,7 +47,8 @@ def create_app(store: ProjectStore) -> Flask:
         return runtime_cache[project_id]
 
     def current_runtime() -> ProjectRuntime:
-        project_id = session.get("project_id") or default_project_id
+        session_value = session.get("project_id")
+        project_id = session_value if isinstance(session_value, str) and session_value else default_project_id
         session["project_id"] = project_id
         try:
             runtime = ensure_runtime(project_id)
@@ -46,34 +57,35 @@ def create_app(store: ProjectStore) -> Flask:
         return runtime
 
     @app.get("/")
-    def index():
+    def index() -> ResponseReturnValue:  # pyright: ignore[reportUnusedFunction]
         return send_from_directory(static_dir, "index.html")
 
     @app.get("/api/state")
-    def get_state():
+    def get_state() -> ResponseReturnValue:  # pyright: ignore[reportUnusedFunction]
         runtime = current_runtime()
         state = runtime.ensure_state()
-        payload = dict(state)
+        payload: dict[str, object] = {key: value for key, value in state.items()}
         payload["project_id"] = runtime.store.project_id
         return jsonify(payload)
 
     @app.get("/api/segment/<segment_id>")
-    def get_segment(segment_id: str):
+    def get_segment(segment_id: str) -> ResponseReturnValue:  # pyright: ignore[reportUnusedFunction]
         runtime = current_runtime()
         seg = runtime.get_segment(segment_id)
-        view = request.args.get("view")
+        view_arg = request.args.get("view")
+        view = view_arg if isinstance(view_arg, str) else None
         payload = runtime.segment_payload(seg.segment_id, view=view)
         return jsonify(payload)
 
     @app.get("/api/segment/<segment_id>/image")
-    def segment_image(segment_id: str):
+    def segment_image(segment_id: str) -> ResponseReturnValue:  # pyright: ignore[reportUnusedFunction]
         runtime = current_runtime()
         seg = runtime.get_segment(segment_id)
         crop_bounds = runtime.get_crop_bounds(segment_id)
         image = runtime.load_segment_image(seg, crop_bounds)
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
-        buffer.seek(0)
+        _ = buffer.seek(0)
         response = send_file(buffer, mimetype="image/png")
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
@@ -81,12 +93,10 @@ def create_app(store: ProjectStore) -> Flask:
         return response
 
     @app.post("/api/save")
-    def save_segment():
+    def save_segment() -> ResponseReturnValue:  # pyright: ignore[reportUnusedFunction]
         runtime = current_runtime()
-        raw_json = request.get_json(force=True)
-        if not isinstance(raw_json, dict):
-            abort(400, "Invalid payload.")
-        data: dict[str, object] = dict(raw_json)
+        raw_json = cast(object, request.get_json(force=True))
+        data = _payload_dict(raw_json, error_message="Invalid payload.")
         segment_id_val = data.get("segment_id")
         view_val = data.get("view")
         text_val = data.get("text", "")
@@ -107,17 +117,16 @@ def create_app(store: ProjectStore) -> Flask:
         return jsonify(payload)
 
     @app.post("/api/view")
-    def change_view():
+    def change_view() -> ResponseReturnValue:  # pyright: ignore[reportUnusedFunction]
         runtime = current_runtime()
-        raw_json = request.get_json(force=True)
-        if not isinstance(raw_json, dict):
-            abort(400, "Invalid payload.")
-        data: dict[str, object] = dict(raw_json)
+        raw_json = cast(object, request.get_json(force=True))
+        data = _payload_dict(raw_json, error_message="Invalid payload.")
         target_view_raw = data.get("view")
         current_segment_raw = data.get("segment_id")
-        current_segment = (
-            current_segment_raw if isinstance(current_segment_raw, str) and current_segment_raw else runtime.ensure_state()["segment_id"]
-        )
+        if isinstance(current_segment_raw, str) and current_segment_raw:
+            current_segment = current_segment_raw
+        else:
+            current_segment = runtime.ensure_state()["segment_id"]
         if not isinstance(target_view_raw, str) or target_view_raw not in {"line", "word"}:
             abort(400, "view must be 'line' or 'word'.")
         target_view = target_view_raw
@@ -127,37 +136,36 @@ def create_app(store: ProjectStore) -> Flask:
         return jsonify(payload)
 
     @app.get("/api/projects")
-    def list_projects():
+    def list_projects() -> ResponseReturnValue:  # pyright: ignore[reportUnusedFunction]
         projects: list[dict[str, str]] = []
         data_root = get_data_root()
         for manifest_path in data_root.glob("*/manifest.json"):
             try:
-                raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+                raw_value = cast(JSONValue, json.loads(manifest_path.read_text(encoding="utf-8")))
             except Exception:
                 continue
-            if not isinstance(raw, dict):
+            if not isinstance(raw_value, dict):
                 continue
-            project_id = raw.get("project_id")
+            project_id = raw_value.get("project_id")
             if not isinstance(project_id, str):
                 continue
-            label_value = raw.get("source")
+            label_value = raw_value.get("source")
             label = label_value if isinstance(label_value, str) else project_id
             projects.append({"project_id": project_id, "label": label})
         projects.sort(key=lambda item: item.get("label") or item.get("project_id") or "")
         return jsonify({"projects": projects})
 
     @app.post("/api/project")
-    def change_project():
-        raw_json = request.get_json(force=True)
-        if not isinstance(raw_json, dict):
-            abort(400, "Invalid payload.")
-        data: dict[str, object] = dict(raw_json)
+    def change_project() -> ResponseReturnValue:  # pyright: ignore[reportUnusedFunction]
+        raw_json = cast(object, request.get_json(force=True))
+        data = _payload_dict(raw_json, error_message="Invalid payload.")
         project_id = data.get("project_id")
         if not project_id:
             abort(400, "project_id is required.")
         if not isinstance(project_id, str):
             abort(400, "project_id must be a string.")
-        current_id = session.get("project_id") or default_project_id
+        session_value = session.get("project_id")
+        current_id = session_value if isinstance(session_value, str) and session_value else default_project_id
         if project_id == current_id:
             runtime = current_runtime()
             state = runtime.ensure_state()
@@ -191,7 +199,7 @@ def create_app(store: ProjectStore) -> Flask:
         )
 
     @app.get("/api/export/master")
-    def export_master():
+    def export_master() -> ResponseReturnValue:  # pyright: ignore[reportUnusedFunction]
         runtime = current_runtime()
         master_path = runtime.store.master_path
         if not master_path.exists():
@@ -209,18 +217,8 @@ def run_server(app: Flask, port: int = 8765) -> None:
 class ProjectRuntime:
     """In-memory helper that mediates between Flask routes and on-disk storage."""
 
-    store: ProjectStore
-    segments: list[Segment]
-    segments_by_id: dict[str, Segment]
-    orders: dict[str, list[str]]
-    parents: dict[str, str]
-    edits: dict[str, str]
-    state: dict[str, str]
-    page_dimensions: dict[str, tuple[int, int]]
-    crop_cache: dict[str, dict[str, int]]
-
     def __init__(self, store: ProjectStore) -> None:
-        self.store = store
+        self.store: ProjectStore = store
         self.segments: list[Segment] = store.load_segments()
         if not self.segments:
             raise RuntimeError("No segments available. Run OCR processing first.")
@@ -272,7 +270,7 @@ class ProjectRuntime:
             abort(404, f"Unknown segment {segment_id}")
         return self.segments_by_id[segment_id]
 
-    def segment_payload(self, segment_id: str, view: str | None = None) -> dict[str, Any]:
+    def segment_payload(self, segment_id: str, view: str | None = None) -> dict[str, object]:
         segment = self.get_segment(segment_id)
         text = self.get_text(segment_id)
         resolved = segment_id in self.edits

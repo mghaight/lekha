@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
 from PIL import Image
 
 def convert_from_path(
@@ -10,7 +10,7 @@ def convert_from_path(
     first_page: int | None = ...,
     last_page: int | None = ...,
     fmt: str = ...,
-    jpegopt: dict[str, Any] | None = ...,
+    jpegopt: Mapping[str, object] | None = ...,
     thread_count: int = ...,
     userpw: str | None = ...,
     ownerpw: str | None = ...,

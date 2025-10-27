@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import webbrowser
 from pathlib import Path
-from typing import cast
+from typing import Annotated, cast
 
 import typer
 
@@ -16,12 +16,14 @@ from .server import create_app, run_server
 
 app = typer.Typer(add_completion=False, invoke_without_command=True, help="Lekha manuscript OCR and editor")
 
+MODELS_DEFAULT: tuple[str, ...] = ("tesseract",)
+
 
 def _string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     result: list[str] = []
-    for item in value:
+    for item in cast(list[object], value):
         result.append(item if isinstance(item, str) else str(item))
     return result
 
@@ -30,7 +32,7 @@ def _list_projects() -> list[ProjectManifest]:
     manifests: list[ProjectManifest] = []
     for manifest_path in get_data_root().glob("*/manifest.json"):
         try:
-            raw_obj: object = json.loads(manifest_path.read_text(encoding="utf-8"))
+            raw_obj = cast(object, json.loads(manifest_path.read_text(encoding="utf-8")))
         except Exception:
             continue
         if not isinstance(raw_obj, dict):
@@ -76,17 +78,11 @@ def _choose_existing() -> str | None:
 @app.callback(invoke_without_command=True)
 def main(
     _ctx: typer.Context,
-    manuscript: Path | None = typer.Argument(
-        None, exists=True, readable=True, resolve_path=True
-    ),
-    language: list[str] = typer.Option(
-        [], "-l", "--lang", help="Languages passed to the OCR engines"
-    ),
-    models: list[str] = typer.Option(
-        ["tesseract"], "--model", help="OCR models to run (currently only tesseract)"
-    ),
-    port: int = typer.Option(8765, help="Port for the local web viewer"),
-    no_browser: bool = typer.Option(False, help="Do not automatically open the browser"),
+    manuscript: Annotated[Path | None, typer.Argument(exists=True, readable=True, resolve_path=True)] = None,
+    language: Annotated[list[str] | None, typer.Option("-l", "--lang", help="Languages passed to the OCR engines")] = None,
+    models: Annotated[list[str] | None, typer.Option("--model", help="OCR models to run (currently only tesseract)")] = None,
+    port: Annotated[int, typer.Option(help="Port for the local web viewer")] = 8765,
+    no_browser: Annotated[bool, typer.Option(help="Do not automatically open the browser")] = False,
 ) -> None:
     """
     Process a manuscript with OCR engines and launch the Lekha web viewer.
@@ -117,7 +113,7 @@ def main(
         raise typer.Exit(code=1)
 
     language_values = list(language) if language else []
-    model_values = list(models) if models else []
+    model_values = list(models) if models else list(MODELS_DEFAULT)
     languages = language_values or ["eng"]
     project_id = project_id_for_path(manuscript if manuscript.is_dir() else manuscript.parent)
     typer.echo(f"Processing {len(source_paths)} file(s) for project {project_id}...")

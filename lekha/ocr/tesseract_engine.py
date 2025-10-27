@@ -7,7 +7,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Sequence
-
+from typing import cast
 from PIL import Image
 
 try:
@@ -59,19 +59,6 @@ def _safe_int(value: str | int, *, minimum: int = 0) -> int:
         return max(int(value), minimum)
     except (TypeError, ValueError):
         return minimum
-
-
-def _coerce_output(value: object) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        try:
-            return value.decode("utf-8")
-        except UnicodeDecodeError:
-            return value.decode(errors="ignore")
-    if isinstance(value, str):
-        return value
-    return str(value)
 
 
 def run_tesseract(image_path: Path, languages: Sequence[str]) -> TesseractResult:
@@ -178,8 +165,10 @@ def run_tesseract(image_path: Path, languages: Sequence[str]) -> TesseractResult
         try:
             _ = subprocess.run(cmd, check=True, capture_output=True, text=True)
         except subprocess.CalledProcessError as exc:
-            stderr = _coerce_output(exc.stderr)
-            stdout = _coerce_output(exc.stdout)
+            stderr_value = cast(str | None, exc.stderr)
+            stdout_value = cast(str | None, exc.stdout)
+            stderr = stderr_value or ""
+            stdout = stdout_value or ""
             message = stderr or stdout or str(exc)
             hint = _language_hint_message(message, languages)
             raise RuntimeError(hint) from exc
