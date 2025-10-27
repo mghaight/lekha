@@ -6,6 +6,13 @@ body {
   color: #222;
 }
 
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #10161f;
+    color: #f1f5ff;
+  }
+}
+
 main {
   max-width: 960px;
   margin: 0 auto;
@@ -44,6 +51,14 @@ main {
   font-size: 0.95rem;
 }
 
+@media (prefers-color-scheme: dark) {
+  .project-controls select {
+    border: 1px solid #3f4d6b;
+    background: #1c2738;
+    color: #f1f5ff;
+  }
+}
+
 .project-controls button {
   padding: 0.45rem 0.9rem;
   border: none;
@@ -52,6 +67,12 @@ main {
   color: #fff;
   cursor: pointer;
   font-size: 0.95rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .project-controls button {
+    background: #4c6ef5;
+  }
 }
 
 .project-controls button:hover {
@@ -64,6 +85,14 @@ main {
   padding: 1rem;
   border-radius: 8px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  .preview,
+  .transcription {
+    background: #131d2b;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  }
 }
 
 .preview-header {
@@ -103,6 +132,12 @@ main {
   transition: background 0.2s ease;
 }
 
+@media (prefers-color-scheme: dark) {
+  .toggle-switch {
+    background: #4c5368;
+  }
+}
+
 .toggle-switch::after {
   content: "";
   position: absolute;
@@ -118,6 +153,12 @@ main {
 
 .toggle input:checked + .toggle-switch {
   background: #3056d3;
+}
+
+@media (prefers-color-scheme: dark) {
+  .toggle input:checked + .toggle-switch {
+    background: #6280ff;
+  }
 }
 
 .toggle input:checked + .toggle-switch::after {
@@ -151,8 +192,21 @@ main {
   cursor: zoom-in;
 }
 
+@media (prefers-color-scheme: dark) {
+  .image-frame {
+    background: #0c141f;
+    border-color: #4c6ef5;
+  }
+}
+
 .image-frame.conflict {
   border-color: #c94b3f;
+}
+
+@media (prefers-color-scheme: dark) {
+  .image-frame.conflict {
+    border-color: #ff7a6f;
+  }
 }
 
 .image-frame img {
@@ -185,6 +239,13 @@ main {
   z-index: 2;
 }
 
+@media (prefers-color-scheme: dark) {
+  .zoom-preview {
+    border-color: rgba(98, 128, 255, 0.8);
+    background-color: #0c141f;
+  }
+}
+
 .zoom-preview.active {
   display: block;
 }
@@ -195,6 +256,14 @@ main {
   font-family: "Courier New", monospace;
   font-size: 1rem;
   min-height: 160px;
+}
+
+@media (prefers-color-scheme: dark) {
+  #transcription-box {
+    background: #0c141f;
+    color: #f1f5ff;
+    border: 1px solid #3f4d6b;
+  }
 }
 
 .actions {
@@ -213,8 +282,20 @@ main {
   color: #fff;
 }
 
+@media (prefers-color-scheme: dark) {
+  .actions button {
+    background: #4c6ef5;
+  }
+}
+
 .actions button[data-action="save"] {
   background: #49744c;
+}
+
+@media (prefers-color-scheme: dark) {
+  .actions button[data-action="save"] {
+    background: #3ba266;
+  }
 }
 
 .actions button:hover {

@@ -4,6 +4,7 @@ const state = {
   projectId: null,
   dirty: false,
   invertColors: false,
+  invertOverride: false,
 };
 
 const imageFrame = document.querySelector(".image-frame");
@@ -18,6 +19,7 @@ const projectSelect = document.getElementById("project-select");
 const exportButton = document.getElementById("export-button");
 const zoomPreview = document.getElementById("zoom-preview");
 const invertToggle = document.getElementById("invert-toggle");
+const colorSchemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
 
 const ZOOM_SCALE = 2.5;
 const ZOOM_BOX_SIZE = 180;
@@ -247,12 +249,29 @@ buttons.forEach((button) => {
 
 if (invertToggle) {
   invertToggle.addEventListener("change", (event) => {
+    state.invertOverride = true;
     state.invertColors = event.target.checked;
     applyImageEffects();
   });
 }
 
-applyImageEffects();
+function applyPreferredInvert() {
+  if (!state.invertOverride) {
+    state.invertColors = colorSchemeQuery.matches;
+    if (invertToggle) {
+      invertToggle.checked = state.invertColors;
+    }
+    applyImageEffects();
+  }
+}
+
+applyPreferredInvert();
+
+if (colorSchemeQuery.addEventListener) {
+  colorSchemeQuery.addEventListener("change", applyPreferredInvert);
+} else if (colorSchemeQuery.addListener) {
+  colorSchemeQuery.addListener(applyPreferredInvert);
+}
 
 if (projectSelect) {
   projectSelect.addEventListener("change", async (event) => {
