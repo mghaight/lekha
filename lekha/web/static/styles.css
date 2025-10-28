@@ -1,6 +1,8 @@
 :root {
   --color-bg: #f3f3f3;
   --color-text: #222;
+  --color-link: #0000EE;
+  --color-link-hover: red;
   --color-surface: #fff;
   --color-surface-alt: #fdfdfd;
   --color-border: #c7c7d1;
@@ -29,6 +31,8 @@
   :root {
     --color-bg: #10161f;
     --color-text: #f1f5ff;
+    --color-link: #87CEEB;
+    --color-link-hover: red;
     --color-surface: #131d2b;
     --color-surface-alt: #0c141f;
     --color-border: #3f4d6b;
@@ -50,8 +54,21 @@
   }
 }
 
+*,
+::before,
+::after {
+  background-repeat: no-repeat;
+  box-sizing: border-box;
+  color: inherit;
+  font: inherit;
+  list-style-type: none;
+  margin: 0;
+  padding: 0;
+  text-decoration: inherit;
+}
+
 body {
-  font-family: system-ui, sans-serif;
+  font-family: "Verdana", sans-serif;
   margin: 0;
   padding: 1rem;
   background: var(--color-bg);
@@ -63,6 +80,15 @@ main {
   margin: 0 auto;
   display: grid;
   gap: 1rem;
+}
+
+a {
+  color: var(--color-link);
+}
+
+a:hover {
+  color: var(--color-link-hover);
+  
 }
 
 .view-toggle {
@@ -280,4 +306,13 @@ main {
 .actions button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.header {
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.footer {
+  font-size: 0.85rem; 
 }
