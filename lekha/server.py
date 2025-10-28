@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import os
+import secrets
 from pathlib import Path
 from typing import cast
 
@@ -15,11 +17,34 @@ from PIL import Image
 from .project import JSONValue, ProjectStore, Segment
 from .config import get_data_root
 
+logger = logging.getLogger(__name__)
+
+
+def get_or_generate_secret_key() -> str:
+    """
+    Get secret key from environment or generate a new one.
+    Warns if using the default development key.
+    Returns a cryptographically secure secret key.
+    """
+    env_secret = os.environ.get("LEKHA_WEB_SECRET")
+    if env_secret:
+        if env_secret == "lekha-dev":
+            logger.warning(
+                "Using default secret key 'lekha-dev'. " +
+                "Set LEKHA_WEB_SECRET environment variable to a secure random value in production."
+            )
+        return env_secret
+
+    # Generate a secure random key
+    secret_key = secrets.token_hex(32)
+    logger.info("Generated new secret key for this session. Set LEKHA_WEB_SECRET to persist sessions across restarts.")
+    return secret_key
+
 
 def create_app(store: ProjectStore) -> Flask:
     static_dir = Path(__file__).parent / "web" / "static"
     app = Flask(__name__, static_folder=str(static_dir), static_url_path="/static")
-    app.secret_key = os.environ.get("LEKHA_WEB_SECRET", "lekha-dev")
+    app.secret_key = get_or_generate_secret_key()
     default_project_id = store.project_id
     runtime_cache: dict[str, ProjectRuntime] = {default_project_id: ProjectRuntime(store)}
 
@@ -81,8 +106,13 @@ def create_app(store: ProjectStore) -> Flask:
     def segment_image(segment_id: str) -> ResponseReturnValue:  # pyright: ignore[reportUnusedFunction]
         runtime = current_runtime()
         seg = runtime.get_segment(segment_id)
-        crop_bounds = runtime.get_crop_bounds(segment_id)
-        image = runtime.load_segment_image(seg, crop_bounds)
+        try:
+            crop_bounds = runtime.get_crop_bounds(segment_id)
+            image = runtime.load_segment_image(seg, crop_bounds)
+        except FileNotFoundError as exc:
+            abort(404, str(exc))
+        except RuntimeError as exc:
+            abort(500, str(exc))
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         _ = buffer.seek(0)
@@ -236,7 +266,6 @@ class ProjectRuntime:
         self.state: dict[str, str] = self.store.read_state()
         self.page_dimensions: dict[str, tuple[int, int]] = {}
         self.crop_cache: dict[str, dict[str, int]] = {}
-        self._populate_page_dimensions()
         _ = self.ensure_state()
 
     def _ordered_ids(self, view: str) -> list[str]:
@@ -287,13 +316,18 @@ class ProjectRuntime:
 
     def load_segment_image(self, segment: Segment, crop: dict[str, int] | None = None) -> Image.Image:
         image_path = self.store.assets_dir / segment.page_image
+        if not image_path.exists():
+            raise FileNotFoundError(f"Image file not found: {segment.page_image}")
         crop_bounds = crop or self.get_crop_bounds(segment.segment_id)
-        with Image.open(image_path) as image:
-            left = crop_bounds["left"]
-            top = crop_bounds["top"]
-            right = crop_bounds["right"]
-            bottom = crop_bounds["bottom"]
-            return image.crop((left, top, right, bottom)).copy()
+        try:
+            with Image.open(image_path) as image:
+                left = crop_bounds["left"]
+                top = crop_bounds["top"]
+                right = crop_bounds["right"]
+                bottom = crop_bounds["bottom"]
+                return image.crop((left, top, right, bottom)).copy()
+        except (OSError, IOError) as exc:
+            raise RuntimeError(f"Failed to load or process image {segment.page_image}: {exc}") from exc
 
     def save(self, segment_id: str, view: str, text: str) -> None:
         if view == "line":
@@ -449,18 +483,31 @@ class ProjectRuntime:
         has_next_issue = self._next_issue(view, index) is not None
         return {"can_prev": can_prev, "can_next": can_next, "has_next_issue": has_next_issue}
 
-    def _populate_page_dimensions(self) -> None:
-        for segment in self.segments:
-            if segment.page_image in self.page_dimensions:
-                continue
-            image_path = self.store.assets_dir / segment.page_image
+    def _get_page_dimensions(self, page_image: str) -> tuple[int, int]:
+        """
+        Lazily load page dimensions for an image.
+        Dimensions are cached after first load.
+        Raises FileNotFoundError or RuntimeError if image cannot be loaded.
+        """
+        if page_image in self.page_dimensions:
+            return self.page_dimensions[page_image]
+
+        image_path = self.store.assets_dir / page_image
+        if not image_path.exists():
+            raise FileNotFoundError(f"Image file not found: {page_image}")
+
+        try:
             with Image.open(image_path) as image:
-                self.page_dimensions[segment.page_image] = image.size
+                dimensions = image.size
+                self.page_dimensions[page_image] = dimensions
+                return dimensions
+        except (OSError, IOError) as exc:
+            raise RuntimeError(f"Failed to load image dimensions for {page_image}: {exc}") from exc
 
     def _crop_geometry(
         self, segment: Segment, padding_x_ratio: float = 0.1, padding_y_ratio: float = 0.5
     ) -> dict[str, int]:
-        width, height = self.page_dimensions[segment.page_image]
+        width, height = self._get_page_dimensions(segment.page_image)
         bbox = segment.bbox or {}
         base_x = bbox.get("x", 0)
         base_y = bbox.get("y", 0)

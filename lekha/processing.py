@@ -11,6 +11,7 @@ from PIL import Image
 
 from .diffing import BaseToken, WordConsensus, compute_word_consensus
 from .ocr import TesseractResult, run_tesseract
+from .ocr.tesseract_engine import validate_tesseract_installation
 from .project import ProjectManifest, ProjectStore, Segment
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,9 @@ def process_inputs(
     source: str,
 ) -> None:
     """Process the provided sources with OCR models and persist results."""
+    # Validate Tesseract installation before starting
+    validate_tesseract_installation()
+
     languages = languages or ["eng"]
     selected_models = list(dict.fromkeys(models or ["tesseract"]))
     for model in selected_models:
@@ -67,8 +71,8 @@ def process_inputs(
 
     for page_index, image_path in enumerate(page_images):
         absolute_image_path = store.assets_dir / image_path
-        image = Image.open(absolute_image_path)
-        width, height = image.size
+        with Image.open(absolute_image_path) as image:
+            width, height = image.size
 
         tess_result = _run_tesseract_with_logging(absolute_image_path, languages)
         other_outputs: dict[str, str] = {"tesseract": tess_result.text}
@@ -132,12 +136,12 @@ def _prepare_page_images(source_paths: list[Path], store: ProjectStore) -> list[
                 page_images.append(asset_name)
                 page_counter += 1
         else:
-            image = Image.open(source_path)
-            asset_name = Path(f"page_{page_counter:04d}.png")
-            destination = store.assets_dir / asset_name
-            image.convert("RGB").save(destination)
-            page_images.append(asset_name)
-            page_counter += 1
+            with Image.open(source_path) as image:
+                asset_name = Path(f"page_{page_counter:04d}.png")
+                destination = store.assets_dir / asset_name
+                image.convert("RGB").save(destination)
+                page_images.append(asset_name)
+                page_counter += 1
     return page_images
 
 

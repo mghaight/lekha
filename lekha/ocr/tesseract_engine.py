@@ -47,6 +47,42 @@ class TesseractResult:
     lines: list[TesseractLine]
 
 
+def validate_tesseract_installation() -> None:
+    """
+    Validate that Tesseract is installed and accessible.
+    Raises RuntimeError with helpful installation instructions if not found.
+    """
+    # Check if pytesseract is available
+    if pytesseract is None:
+        raise RuntimeError(
+            "pytesseract is not installed. Install it with: pip install pytesseract\n" +
+            "Also ensure Tesseract OCR is installed on your system:\n" +
+            "  - macOS: brew install tesseract\n" +
+            "  - Ubuntu/Debian: sudo apt-get install tesseract-ocr\n" +
+            "  - Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki"
+        )
+
+    # Try to verify Tesseract is installed by running a simple command
+    try:
+        # Try to get version info or just test if tesseract command works
+        _ = subprocess.run(
+            ["tesseract", "--version"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(
+            f"Tesseract OCR is not installed or not accessible: {exc}\n" +
+            "Install Tesseract OCR:\n" +
+            "  - macOS: brew install tesseract\n" +
+            "  - Ubuntu/Debian: sudo apt-get install tesseract-ocr\n" +
+            "  - Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki\n" +
+            "You may need to set the TESSERACT_CMD environment variable to point to the tesseract executable."
+        ) from exc
+
+
 def _language_arg(languages: Sequence[str]) -> str:
     return "+".join(languages) if languages else "eng"
 
