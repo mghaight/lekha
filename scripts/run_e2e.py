@@ -10,12 +10,11 @@ import unittest
 
 def main() -> int:
     try:
-        importlib.import_module("typer.testing")
+        _ = importlib.import_module("typer.testing")
     except ModuleNotFoundError as exc:  # pragma: no cover - defensive
         missing = exc.name or "typer"
         print(
-            f"Missing dependency '{missing}'. Install project requirements first "
-            "(e.g. `python -m pip install -e .`).",
+            f"Missing dependency '{missing}'. Install project requirements first (e.g. `python -m pip install -e .`).",
             file=sys.stderr,
         )
         return 1

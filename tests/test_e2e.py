@@ -5,11 +5,14 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from typing import override
-from unittest.mock import patch
+from typing import cast, override
+from unittest.mock import MagicMock, patch
 
 from PIL import Image
+from flask import Flask
+from flask.testing import FlaskClient
 from typer.testing import CliRunner
+from werkzeug.test import TestResponse
 
 from lekha.cli import app as cli_app
 from lekha.ocr.tesseract_engine import TesseractLine, TesseractResult, TesseractWord
@@ -45,7 +48,7 @@ class EndToEndWorkflowTests(unittest.TestCase):
         ]
         for patcher in patchers:
             self.addCleanup(patcher.stop)
-            patcher.start()
+            _ = patcher.start()
 
         self.runner = CliRunner()
 
@@ -110,7 +113,8 @@ class EndToEndWorkflowTests(unittest.TestCase):
             )
 
         self.assertEqual(result.exit_code, 0, msg=f"CLI failed: {result.stdout}")
-        run_server_mock.assert_called_once()
+        run_server_spy = cast(MagicMock, run_server_mock)
+        run_server_spy.assert_called_once()
 
         store = ProjectStore("proj-e2e")
         manifest = store.load_manifest()
@@ -143,41 +147,58 @@ class EndToEndWorkflowTests(unittest.TestCase):
         self.assertEqual(runtime.get_text("p000_l0000"), "Hello World")
         self.assertEqual(runtime.get_text("p000_l0000_w0001"), "World")
 
-        app_instance = run_server_mock.call_args.args[0]
-        with app_instance.test_client() as client:
-            state_resp = client.get("/api/state")
+        app_instance = cast(Flask, run_server_spy.call_args.args[0])
+        client_raw = app_instance.test_client()
+        assert isinstance(client_raw, FlaskClient)
+        with client_raw as http_client:
+            state_resp: TestResponse = http_client.get("/api/state")
             self.assertEqual(state_resp.status_code, 200)
-            state_payload = state_resp.get_json()
-            assert isinstance(state_payload, dict)
-            self.assertEqual(state_payload["project_id"], "proj-e2e")
-            self.assertEqual(state_payload["segment_id"], "p000_l0000")
+            state_payload_obj = cast(object, state_resp.get_json())
+            self.assertIsInstance(state_payload_obj, dict)
+            state_payload = cast(dict[str, object], state_payload_obj)
+            self.assertEqual(state_payload.get("project_id"), "proj-e2e")
+            self.assertEqual(state_payload.get("segment_id"), "p000_l0000")
+            state_resp.close()
 
-            segment_resp = client.get("/api/segment/p000_l0000")
+            segment_resp: TestResponse = http_client.get("/api/segment/p000_l0000")
             self.assertEqual(segment_resp.status_code, 200)
-            payload = segment_resp.get_json()
-            assert isinstance(payload, dict)
-            self.assertEqual(payload["text"], "Hello World")
+            payload_obj = cast(object, segment_resp.get_json())
+            self.assertIsInstance(payload_obj, dict)
+            payload = cast(dict[str, object], payload_obj)
+            self.assertEqual(payload.get("text"), "Hello World")
+            segment_resp.close()
 
-            image_resp = client.get("/api/segment/p000_l0000_w0000/image")
+            image_resp: TestResponse = http_client.get("/api/segment/p000_l0000_w0000/image")
             self.assertEqual(image_resp.status_code, 200)
             self.assertEqual(image_resp.mimetype, "image/png")
-            cache_header = image_resp.headers.get("Cache-Control")
+            cache_header: str | None = image_resp.headers.get("Cache-Control")
             self.assertIn("no-store", cache_header or "")
+            image_resp.close()
 
-            projects_resp = client.get("/api/projects")
+            projects_resp: TestResponse = http_client.get("/api/projects")
             self.assertEqual(projects_resp.status_code, 200)
-            projects_payload = projects_resp.get_json()
-            assert isinstance(projects_payload, dict)
-            projects_json = projects_payload.get("projects")
-            assert isinstance(projects_json, list)
-            project_ids = {item["project_id"] for item in projects_json if isinstance(item, dict)}
+            projects_payload_obj = cast(object, projects_resp.get_json())
+            self.assertIsInstance(projects_payload_obj, dict)
+            projects_payload = cast(dict[str, object], projects_payload_obj)
+            projects_json_obj: object = projects_payload.get("projects")
+            self.assertIsInstance(projects_json_obj, list)
+            projects_json = cast(list[object], projects_json_obj)
+            project_ids: set[str] = set()
+            for item in projects_json:
+                if isinstance(item, dict):
+                    item_typed = cast(dict[str, object], item)
+                    project_id_val = item_typed.get("project_id")
+                    if isinstance(project_id_val, str):
+                        project_ids.add(project_id_val)
             self.assertIn("proj-e2e", project_ids)
+            projects_resp.close()
 
-            export_resp = client.get("/api/export/master")
+            export_resp: TestResponse = http_client.get("/api/export/master")
             self.assertEqual(export_resp.status_code, 200)
             self.assertEqual(export_resp.mimetype, "text/plain")
-            export_text = export_resp.get_data(as_text=True)
+            export_text: str = export_resp.get_data(as_text=True)
             self.assertEqual(export_text.strip(), "Hello World")
+            export_resp.close()
 
         outputs_path = store.outputs_dir / "tesseract" / "page_0000.txt"
         self.assertTrue(outputs_path.exists())
