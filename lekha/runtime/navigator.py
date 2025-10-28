@@ -118,7 +118,10 @@ class SegmentNavigator:
             view: Current view mode
             segment_id: Current segment ID
         """
-        self.state = {"view": view, "segment_id": segment_id}
+        # Mutate state dict in place so shared references stay in sync
+        self.state.clear()
+        self.state["view"] = view
+        self.state["segment_id"] = segment_id
         self.store.write_state(self.state)
 
     def navigation_status(self, segment_id: str, view: str) -> dict[str, bool]:

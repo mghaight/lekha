@@ -173,6 +173,33 @@ class ProjectRuntimeTests(unittest.TestCase):
         back_to_line = self.runtime.switch_view(first_word, "line")
         self.assertEqual(back_to_line, "p000_l0000")
 
+    def test_persist_state_keeps_runtime_state_in_sync(self) -> None:
+        assert self.runtime is not None
+        assert self.store is not None
+        target_word = "p000_l0000_w0000"
+        self.runtime.persist_state("word", target_word)
+        self.assertEqual(self.runtime.state["view"], "word")
+        self.assertEqual(self.runtime.state["segment_id"], target_word)
+        refreshed = self.runtime.ensure_state()
+        self.assertEqual(refreshed["view"], "word")
+        self.assertEqual(refreshed["segment_id"], target_word)
+        persisted = self.store.read_state()
+        self.assertEqual(persisted["view"], "word")
+        self.assertEqual(persisted["segment_id"], target_word)
+
+    def test_ensure_state_corrects_invalid_values(self) -> None:
+        assert self.runtime is not None
+        assert self.store is not None
+        self.runtime.state["view"] = "invalid"
+        self.runtime.state["segment_id"] = "bogus"
+        self.store.write_state(self.runtime.state)
+        state = self.runtime.ensure_state()
+        self.assertEqual(state["view"], "line")
+        self.assertEqual(state["segment_id"], "p000_l0000")
+        persisted = self.store.read_state()
+        self.assertEqual(persisted["view"], "line")
+        self.assertEqual(persisted["segment_id"], "p000_l0000")
+
     def test_segment_payload_reflects_conflicts(self) -> None:
         assert self.runtime is not None
         payload = self.runtime.segment_payload("p000_l0001")

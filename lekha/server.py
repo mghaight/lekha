@@ -289,13 +289,20 @@ class ProjectRuntime:
         default_segment = ""
         if self.orders[default_view]:
             default_segment = self.orders[default_view][0]
+        changed = False
         if not self.state:
-            self.state = {"view": default_view, "segment_id": default_segment}
-            self.store.write_state(self.state)
-        if self.state["view"] not in {"line", "word"}:
+            self.state.clear()
             self.state["view"] = default_view
-        if self.state["segment_id"] not in self.segments_by_id and default_segment:
             self.state["segment_id"] = default_segment
+            changed = True
+        else:
+            if self.state.get("view") not in {"line", "word"}:
+                self.state["view"] = default_view
+                changed = True
+            if self.state.get("segment_id") not in self.segments_by_id and default_segment:
+                self.state["segment_id"] = default_segment
+                changed = True
+        if changed:
             self.store.write_state(self.state)
         return self.state
 
