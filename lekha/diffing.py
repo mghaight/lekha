@@ -79,9 +79,11 @@ def compute_word_consensus(
                 for base_idx in range(i1, i2):
                     consensus[base_idx].alternatives[model_name] = ""
             elif tag == "insert":
-                target_idx = max(i1 - 1, 0) if consensus else 0
-                insertion = " ".join(tokens[j1:j2])
-                _append_alternative(consensus[target_idx], model_name, insertion)
+                # Only append insertion if we have base tokens to attach it to
+                if consensus:
+                    target_idx = max(i1 - 1, 0)
+                    insertion = " ".join(tokens[j1:j2])
+                    _append_alternative(consensus[target_idx], model_name, insertion)
     return consensus
 
 
