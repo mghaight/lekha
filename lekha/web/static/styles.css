@@ -1,16 +1,61 @@
+:root {
+  --color-bg: #f3f3f3;
+  --color-text: #222;
+  --color-surface: #fff;
+  --color-surface-alt: #fdfdfd;
+  --color-border: #c7c7d1;
+  --color-select-bg: #fff;
+  --color-select-text: #222;
+  --color-control-bg: #2f3b55;
+  --color-control-text: #fff;
+  --color-button-primary: #3056d3;
+  --color-button-save: #49744c;
+  --color-button-text: #fff;
+  --color-toggle-off: #c7c7d1;
+  --color-toggle-on: #3056d3;
+  --color-toggle-thumb: #fff;
+  --color-image-border: #65a665;
+  --color-image-conflict: #c94b3f;
+  --color-zoom-border: rgba(48, 86, 211, 0.75);
+  --color-zoom-bg: #fff;
+  --color-zoom-shadow: rgba(0, 0, 0, 0.25);
+  --color-textarea-bg: #fff;
+  --color-textarea-border: #c7c7d1;
+  --color-textarea-text: #222;
+  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #10161f;
+    --color-text: #f1f5ff;
+    --color-surface: #131d2b;
+    --color-surface-alt: #0c141f;
+    --color-border: #3f4d6b;
+    --color-select-bg: #1c2738;
+    --color-select-text: #f1f5ff;
+    --color-control-bg: #4c6ef5;
+    --color-button-primary: #4c6ef5;
+    --color-button-save: #3ba266;
+    --color-toggle-off: #4c5368;
+    --color-toggle-on: #6280ff;
+    --color-image-border: #4c6ef5;
+    --color-image-conflict: #ff7a6f;
+    --color-zoom-border: rgba(98, 128, 255, 0.8);
+    --color-zoom-bg: #0c141f;
+    --color-textarea-bg: #0c141f;
+    --color-textarea-border: #3f4d6b;
+    --color-textarea-text: #f1f5ff;
+    --shadow-panel: 0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+}
+
 body {
   font-family: system-ui, sans-serif;
   margin: 0;
   padding: 1rem;
-  background: #f3f3f3;
-  color: #222;
-}
-
-@media (prefers-color-scheme: dark) {
-  body {
-    background: #10161f;
-    color: #f1f5ff;
-  }
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
 main {
@@ -46,33 +91,20 @@ main {
   min-width: 180px;
   padding: 0.4rem 0.5rem;
   border-radius: 6px;
-  border: 1px solid #c7c7d1;
-  background: #fff;
+  border: 1px solid var(--color-border);
+  background: var(--color-select-bg);
   font-size: 0.95rem;
-}
-
-@media (prefers-color-scheme: dark) {
-  .project-controls select {
-    border: 1px solid #3f4d6b;
-    background: #1c2738;
-    color: #f1f5ff;
-  }
+  color: var(--color-select-text);
 }
 
 .project-controls button {
   padding: 0.45rem 0.9rem;
   border: none;
   border-radius: 6px;
-  background: #2f3b55;
-  color: #fff;
+  background: var(--color-control-bg);
+  color: var(--color-control-text);
   cursor: pointer;
   font-size: 0.95rem;
-}
-
-@media (prefers-color-scheme: dark) {
-  .project-controls button {
-    background: #4c6ef5;
-  }
 }
 
 .project-controls button:hover {
@@ -81,18 +113,10 @@ main {
 
 .preview,
 .transcription {
-  background: #fff;
+  background: var(--color-surface);
   padding: 1rem;
   border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-}
-
-@media (prefers-color-scheme: dark) {
-  .preview,
-  .transcription {
-    background: #131d2b;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  }
+  box-shadow: var(--shadow-panel);
 }
 
 .preview-header {
@@ -127,15 +151,9 @@ main {
   position: relative;
   width: 36px;
   height: 18px;
-  background: #c7c7d1;
+  background: var(--color-toggle-off);
   border-radius: 999px;
   transition: background 0.2s ease;
-}
-
-@media (prefers-color-scheme: dark) {
-  .toggle-switch {
-    background: #4c5368;
-  }
 }
 
 .toggle-switch::after {
@@ -146,19 +164,13 @@ main {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--color-toggle-thumb);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   transition: transform 0.2s ease;
 }
 
 .toggle input:checked + .toggle-switch {
-  background: #3056d3;
-}
-
-@media (prefers-color-scheme: dark) {
-  .toggle input:checked + .toggle-switch {
-    background: #6280ff;
-  }
+  background: var(--color-toggle-on);
 }
 
 .toggle input:checked + .toggle-switch::after {
@@ -185,28 +197,15 @@ main {
   display: flex;
   justify-content: center;
   align-items: center;
-  border: 4px solid #65a665;
+  border: 4px solid var(--color-image-border);
   border-radius: 6px;
   overflow: visible;
-  background: #fdfdfd;
+  background: var(--color-surface-alt);
   cursor: zoom-in;
 }
 
-@media (prefers-color-scheme: dark) {
-  .image-frame {
-    background: #0c141f;
-    border-color: #4c6ef5;
-  }
-}
-
 .image-frame.conflict {
-  border-color: #c94b3f;
-}
-
-@media (prefers-color-scheme: dark) {
-  .image-frame.conflict {
-    border-color: #ff7a6f;
-  }
+  border-color: var(--color-image-conflict);
 }
 
 .image-frame img {
@@ -227,23 +226,16 @@ main {
   position: absolute;
   width: 180px;
   height: 180px;
-  border: 2px solid rgba(48, 86, 211, 0.75);
+  border: 2px solid var(--color-zoom-border);
   border-radius: 8px;
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 6px 12px var(--color-zoom-shadow);
   pointer-events: none;
   display: none;
-  background-color: #fff;
+  background-color: var(--color-zoom-bg);
   background-repeat: no-repeat;
   background-position: center;
   background-size: 200% 200%;
   z-index: 2;
-}
-
-@media (prefers-color-scheme: dark) {
-  .zoom-preview {
-    border-color: rgba(98, 128, 255, 0.8);
-    background-color: #0c141f;
-  }
 }
 
 .zoom-preview.active {
@@ -256,14 +248,9 @@ main {
   font-family: "Courier New", monospace;
   font-size: 1rem;
   min-height: 160px;
-}
-
-@media (prefers-color-scheme: dark) {
-  #transcription-box {
-    background: #0c141f;
-    color: #f1f5ff;
-    border: 1px solid #3f4d6b;
-  }
+  background: var(--color-textarea-bg);
+  color: var(--color-textarea-text);
+  border: 1px solid var(--color-textarea-border);
 }
 
 .actions {
@@ -278,24 +265,12 @@ main {
   border-radius: 6px;
   font-size: 1rem;
   cursor: pointer;
-  background: #3056d3;
-  color: #fff;
-}
-
-@media (prefers-color-scheme: dark) {
-  .actions button {
-    background: #4c6ef5;
-  }
+  background: var(--color-button-primary);
+  color: var(--color-button-text);
 }
 
 .actions button[data-action="save"] {
-  background: #49744c;
-}
-
-@media (prefers-color-scheme: dark) {
-  .actions button[data-action="save"] {
-    background: #3ba266;
-  }
+  background: var(--color-button-save);
 }
 
 .actions button:hover {
