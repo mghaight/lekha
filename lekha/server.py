@@ -16,6 +16,7 @@ from PIL import Image
 
 from .project import JSONValue, ProjectStore, Segment
 from .config import get_data_root
+from .runtime import ImageService, SegmentNavigator, SegmentEditor
 
 logger = logging.getLogger(__name__)
 
@@ -245,7 +246,7 @@ def run_server(app: Flask, port: int = 8765) -> None:
 
 
 class ProjectRuntime:
-    """In-memory helper that mediates between Flask routes and on-disk storage."""
+    """Facade coordinating specialized services for project operations."""
 
     def __init__(self, store: ProjectStore) -> None:
         self.store: ProjectStore = store
@@ -264,8 +265,12 @@ class ProjectRuntime:
                     self.parents[word_id] = segment.segment_id
         self.edits: dict[str, str] = self.store.read_edits()
         self.state: dict[str, str] = self.store.read_state()
-        self.page_dimensions: dict[str, tuple[int, int]] = {}
-        self.crop_cache: dict[str, dict[str, int]] = {}
+
+        # Initialize specialized services
+        self.image_service: ImageService = ImageService(store, self.segments_by_id)
+        self.navigator: SegmentNavigator = SegmentNavigator(self.orders, self.segments_by_id, self.parents, self.edits, self.state, store)
+        self.editor: SegmentEditor = SegmentEditor(self.orders, self.segments_by_id, self.parents, self.edits, store)
+
         _ = self.ensure_state()
 
     def _ordered_ids(self, view: str) -> list[str]:
@@ -301,7 +306,7 @@ class ProjectRuntime:
 
     def segment_payload(self, segment_id: str, view: str | None = None) -> dict[str, object]:
         segment = self.get_segment(segment_id)
-        text = self.get_text(segment_id)
+        text = self.editor.get_text(segment_id)
         resolved = segment_id in self.edits
         has_conflict = segment.has_conflict and not resolved
         active_view = view if view in {"line", "word"} else segment.view
@@ -311,221 +316,43 @@ class ProjectRuntime:
             "text": text,
             "has_conflict": has_conflict,
             "image_url": f"/api/segment/{segment.segment_id}/image?project={self.store.project_id}",
-            "navigation": self.navigation_status(segment.segment_id, active_view),
+            "navigation": self.navigator.navigation_status(segment.segment_id, active_view),
         }
+
+    # Delegation methods to services
 
     def load_segment_image(self, segment: Segment, crop: dict[str, int] | None = None) -> Image.Image:
-        image_path = self.store.assets_dir / segment.page_image
-        if not image_path.exists():
-            raise FileNotFoundError(f"Image file not found: {segment.page_image}")
-        crop_bounds = crop or self.get_crop_bounds(segment.segment_id)
-        try:
-            with Image.open(image_path) as image:
-                left = crop_bounds["left"]
-                top = crop_bounds["top"]
-                right = crop_bounds["right"]
-                bottom = crop_bounds["bottom"]
-                return image.crop((left, top, right, bottom)).copy()
-        except (OSError, IOError) as exc:
-            raise RuntimeError(f"Failed to load or process image {segment.page_image}: {exc}") from exc
-
-    def save(self, segment_id: str, view: str, text: str) -> None:
-        if view == "line":
-            self._save_line(segment_id, text)
-        else:
-            self._save_word(segment_id, text)
-        self._persist()
-
-    def _save_line(self, line_id: str, text: str) -> None:
-        line_segment = self.get_segment(line_id)
-        tokens = text.split()
-        word_ids = line_segment.word_ids
-        if word_ids:
-            if not tokens:
-                tokens = ["" for _ in word_ids]
-            if len(tokens) < len(word_ids):
-                tokens.extend([""] * (len(word_ids) - len(tokens)))
-            elif len(tokens) > len(word_ids):
-                leading = tokens[: len(word_ids) - 1]
-                trailing = " ".join(tokens[len(word_ids) - 1 :])
-                tokens = leading + [trailing]
-            for word_id, token in zip(word_ids, tokens):
-                self.edits[word_id] = token
-        self.edits[line_id] = text
-
-    def _save_word(self, word_id: str, text: str) -> None:
-        word_segment = self.get_segment(word_id)
-        self.edits[word_id] = text
-        parent_line_id = self.parents.get(word_id)
-        if parent_line_id:
-            parent_segment = self.get_segment(parent_line_id)
-            tokens: list[str] = []
-            for child_id in parent_segment.word_ids:
-                if child_id == word_id:
-                    tokens.append(text)
-                else:
-                    tokens.append(self.edits.get(child_id, self.get_segment(child_id).consensus_text))
-            line_text = " ".join(tokens).strip()
-            self.edits[parent_line_id] = line_text
-        else:
-            # ensure master text still consistent
-            self._recalculate_line_from_word(word_segment.line_index, word_segment.page_index)
-
-    def _recalculate_line_from_word(self, line_index: int, page_index: int) -> None:
-        line_id = f"p{page_index:03d}_l{line_index:04d}"
-        if line_id not in self.segments_by_id:
-            return
-        line_segment = self.segments_by_id[line_id]
-        tokens = [
-            self.edits.get(word_id, self.segments_by_id[word_id].consensus_text) for word_id in line_segment.word_ids
-        ]
-        self.edits[line_id] = " ".join(tokens).strip()
-
-    def navigate(self, view: str, current_id: str, action: str) -> str:
-        order = self.orders.get(view, [])
-        if not order:
-            return current_id
-        try:
-            index = order.index(current_id)
-        except ValueError:
-            index = 0
-        if action == "prev":
-            index = max(index - 1, 0)
-        elif action == "next":
-            index = min(index + 1, len(order) - 1)
-        elif action == "next_issue":
-            next_issue_id = self._next_issue(view, index)
-            return next_issue_id or current_id
-        return order[index]
-
-    def _next_issue(self, view: str, start_index: int) -> str | None:
-        order = self.orders.get(view, [])
-        length = len(order)
-        if not length:
-            return None
-        begin = max(start_index + 1, 0)
-        for idx in range(begin, length):
-            seg_id = order[idx]
-            segment = self.segments_by_id[seg_id]
-            if segment.has_conflict and seg_id not in self.edits:
-                return seg_id
-        return None
-
-    def switch_view(self, current_segment: str, target_view: str) -> str:
-        segment = self.segments_by_id.get(current_segment)
-        if target_view == "line":
-            if segment and segment.view == "line":
-                target = current_segment
-            elif segment and segment.view == "word":
-                target = self.parents.get(current_segment, "")
-            else:
-                target = ""
-            if not target and self.orders["line"]:
-                target = self.orders["line"][0]
-        else:
-            if segment and segment.view == "word":
-                target = current_segment
-            elif segment and segment.view == "line" and segment.word_ids:
-                target = segment.word_ids[0]
-            else:
-                target = ""
-            if not target and self.orders["word"]:
-                target = self.orders["word"][0]
-        if not target:
-            target = current_segment
-        self.persist_state(target_view, target)
-        return target
-
-    def persist_state(self, view: str, segment_id: str) -> None:
-        self.state = {"view": view, "segment_id": segment_id}
-        self.store.write_state(self.state)
-
-    def get_text(self, segment_id: str) -> str:
-        if segment_id in self.edits:
-            return self.edits[segment_id]
-        segment = self.get_segment(segment_id)
-        if segment.view == "line" and segment.word_ids:
-            tokens = [self.get_text(word_id) for word_id in segment.word_ids]
-            text = " ".join(tokens).strip()
-            return text if text else segment.consensus_text
-        return segment.consensus_text
+        """Delegate to image service."""
+        return self.image_service.load_segment_image(segment, crop)
 
     def get_crop_bounds(self, segment_id: str) -> dict[str, int]:
-        if segment_id not in self.crop_cache:
-            segment = self.get_segment(segment_id)
-            crop = self._crop_geometry(segment)
-            self.crop_cache[segment_id] = crop
-        return self.crop_cache[segment_id]
-
-    def _persist(self) -> None:
-        self.store.write_edits(self.edits)
-        master_text = self._compose_master_text()
-        self.store.write_master(master_text)
-
-    def _compose_master_text(self) -> str:
-        lines: list[str] = []
-        for line_id in self.orders["line"]:
-            lines.append(self.get_text(line_id))
-        return "\n".join(lines)
-
-    def navigation_status(self, segment_id: str, view: str) -> dict[str, bool]:
-        if view not in {"line", "word"}:
-            return {"can_prev": False, "can_next": False, "has_next_issue": False}
-        order = self.orders.get(view, [])
-        if not order:
-            return {"can_prev": False, "can_next": False, "has_next_issue": False}
-        try:
-            index = order.index(segment_id)
-        except ValueError:
-            return {"can_prev": False, "can_next": False, "has_next_issue": False}
-        can_prev = index > 0
-        can_next = index < len(order) - 1
-        has_next_issue = self._next_issue(view, index) is not None
-        return {"can_prev": can_prev, "can_next": can_next, "has_next_issue": has_next_issue}
+        """Delegate to image service."""
+        return self.image_service.get_crop_bounds(segment_id)
 
     def _get_page_dimensions(self, page_image: str) -> tuple[int, int]:
-        """
-        Lazily load page dimensions for an image.
-        Dimensions are cached after first load.
-        Raises FileNotFoundError or RuntimeError if image cannot be loaded.
-        """
-        if page_image in self.page_dimensions:
-            return self.page_dimensions[page_image]
+        """Delegate to image service (for backwards compatibility in tests)."""
+        return self.image_service._get_page_dimensions(page_image)  # pyright: ignore[reportPrivateUsage]
 
-        image_path = self.store.assets_dir / page_image
-        if not image_path.exists():
-            raise FileNotFoundError(f"Image file not found: {page_image}")
+    def save(self, segment_id: str, view: str, text: str) -> None:
+        """Delegate to editor service."""
+        self.editor.save(segment_id, view, text)
 
-        try:
-            with Image.open(image_path) as image:
-                dimensions = image.size
-                self.page_dimensions[page_image] = dimensions
-                return dimensions
-        except (OSError, IOError) as exc:
-            raise RuntimeError(f"Failed to load image dimensions for {page_image}: {exc}") from exc
+    def get_text(self, segment_id: str) -> str:
+        """Delegate to editor service."""
+        return self.editor.get_text(segment_id)
 
-    def _crop_geometry(
-        self, segment: Segment, padding_x_ratio: float = 0.1, padding_y_ratio: float = 0.5
-    ) -> dict[str, int]:
-        width, height = self._get_page_dimensions(segment.page_image)
-        bbox = segment.bbox or {}
-        base_x = bbox.get("x", 0)
-        base_y = bbox.get("y", 0)
-        base_w = max(bbox.get("w", 1), 1)
-        base_h = max(bbox.get("h", 1), 1)
-        pad_x = max(int(base_w * padding_x_ratio), 2)
-        pad_y = max(int(base_h * padding_y_ratio), 2)
-        left = max(base_x - pad_x, 0)
-        top = max(base_y - pad_y, 0)
-        right = min(base_x + base_w + pad_x, width)
-        bottom = min(base_y + base_h + pad_y, height)
-        crop_width = max(right - left, 1)
-        crop_height = max(bottom - top, 1)
-        return {
-            "left": left,
-            "top": top,
-            "right": right,
-            "bottom": bottom,
-            "width": crop_width,
-            "height": crop_height,
-        }
+    def navigate(self, view: str, current_id: str, action: str) -> str:
+        """Delegate to navigator service."""
+        return self.navigator.navigate(view, current_id, action)
+
+    def switch_view(self, current_segment: str, target_view: str) -> str:
+        """Delegate to navigator service."""
+        return self.navigator.switch_view(current_segment, target_view)
+
+    def persist_state(self, view: str, segment_id: str) -> None:
+        """Delegate to navigator service."""
+        self.navigator.persist_state(view, segment_id)
+
+    def navigation_status(self, segment_id: str, view: str) -> dict[str, bool]:
+        """Delegate to navigator service."""
+        return self.navigator.navigation_status(segment_id, view)

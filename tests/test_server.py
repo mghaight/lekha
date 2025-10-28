@@ -193,13 +193,13 @@ class ProjectRuntimeTests(unittest.TestCase):
     def test_get_page_dimensions_lazy_loads_and_caches(self) -> None:
         assert self.runtime is not None
         # Dimensions not loaded yet
-        self.assertNotIn("page.png", self.runtime.page_dimensions)
+        self.assertNotIn("page.png", self.runtime.image_service.page_dimensions)
         # First call loads dimensions (testing private method is acceptable in tests)
         width, height = self.runtime._get_page_dimensions("page.png")  # pyright: ignore[reportPrivateUsage]
         self.assertEqual(width, 200)
         self.assertEqual(height, 200)
         # Now cached
-        self.assertIn("page.png", self.runtime.page_dimensions)
+        self.assertIn("page.png", self.runtime.image_service.page_dimensions)
         # Second call uses cache
         width2, height2 = self.runtime._get_page_dimensions("page.png")  # pyright: ignore[reportPrivateUsage]
         self.assertEqual(width2, 200)
