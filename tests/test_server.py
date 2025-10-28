@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from collections.abc import Sequence
@@ -11,7 +12,7 @@ import warnings
 from PIL import Image
 
 from lekha.project import ProjectManifest, ProjectStore, Segment
-from lekha.server import ProjectRuntime, create_app
+from lekha.server import ProjectRuntime, create_app, get_or_generate_secret_key
 
 warnings.simplefilter("ignore", ResourceWarning)
 
@@ -189,6 +190,37 @@ class ProjectRuntimeTests(unittest.TestCase):
         image = self.runtime.load_segment_image(segment, bounds)
         self.assertEqual(image.size, (bounds["width"], bounds["height"]))
 
+    def test_get_page_dimensions_lazy_loads_and_caches(self) -> None:
+        assert self.runtime is not None
+        # Dimensions not loaded yet
+        self.assertNotIn("page.png", self.runtime.page_dimensions)
+        # First call loads dimensions (testing private method is acceptable in tests)
+        width, height = self.runtime._get_page_dimensions("page.png")  # pyright: ignore[reportPrivateUsage]
+        self.assertEqual(width, 200)
+        self.assertEqual(height, 200)
+        # Now cached
+        self.assertIn("page.png", self.runtime.page_dimensions)
+        # Second call uses cache
+        width2, height2 = self.runtime._get_page_dimensions("page.png")  # pyright: ignore[reportPrivateUsage]
+        self.assertEqual(width2, 200)
+        self.assertEqual(height2, 200)
+
+    def test_get_page_dimensions_raises_on_missing_file(self) -> None:
+        assert self.runtime is not None
+        with self.assertRaises(FileNotFoundError) as ctx:
+            _ = self.runtime._get_page_dimensions("nonexistent.png")  # pyright: ignore[reportPrivateUsage]
+        self.assertIn("Image file not found", str(ctx.exception))
+
+    def test_get_page_dimensions_raises_on_corrupted_file(self) -> None:
+        assert self.runtime is not None
+        assert self.store is not None
+        # Create a corrupted image file
+        corrupted_path = self.store.assets_dir / "corrupted.png"
+        _ = corrupted_path.write_text("not an image", encoding="utf-8")
+        with self.assertRaises(RuntimeError) as ctx:
+            _ = self.runtime._get_page_dimensions("corrupted.png")  # pyright: ignore[reportPrivateUsage]
+        self.assertIn("Failed to load image dimensions", str(ctx.exception))
+
     def test_create_app_endpoints(self) -> None:
         assert self.store is not None
         app = create_app(self.store)
@@ -252,3 +284,69 @@ class ProjectRuntimeTests(unittest.TestCase):
         self.assertEqual(export_resp.status_code, 200)
         self.assertEqual(export_resp.mimetype, "text/plain")
         export_resp.close()
+
+    def test_missing_image_file_returns_404(self) -> None:
+        assert self.store is not None
+        assert self.runtime is not None
+        # Delete the image file to simulate missing file
+        image_path = self.store.assets_dir / "page.png"
+        image_path.unlink()
+
+        app = create_app(self.store)
+        client = app.test_client()
+
+        image_resp = client.get("/api/segment/p000_l0000_w0000/image")
+        self.assertEqual(image_resp.status_code, 404)
+        self.assertIn("Image file not found", image_resp.get_data(as_text=True))
+        image_resp.close()
+
+    def test_corrupted_image_file_returns_500(self) -> None:
+        assert self.store is not None
+        # Corrupt the image file by writing invalid data
+        image_path = self.store.assets_dir / "page.png"
+        _ = image_path.write_text("not a valid image", encoding="utf-8")
+
+        app = create_app(self.store)
+        client = app.test_client()
+
+        image_resp = client.get("/api/segment/p000_l0000_w0000/image")
+        self.assertEqual(image_resp.status_code, 500)
+        response_text = image_resp.get_data(as_text=True)
+        # Should have a meaningful error message (could be from dimension loading or image loading)
+        self.assertTrue(
+            "Failed to load image dimensions" in response_text or "Failed to load or process image" in response_text,
+            f"Expected error message not found in response: {response_text}",
+        )
+        image_resp.close()
+
+
+class SecretKeyTests(unittest.TestCase):
+    def test_get_or_generate_secret_key_with_custom_env(self) -> None:
+        with patch.dict(os.environ, {"LEKHA_WEB_SECRET": "custom-secret-key"}, clear=False):
+            key = get_or_generate_secret_key()
+            self.assertEqual(key, "custom-secret-key")
+
+    def test_get_or_generate_secret_key_warns_for_default(self) -> None:
+        with patch.dict(os.environ, {"LEKHA_WEB_SECRET": "lekha-dev"}, clear=False), patch(
+            "lekha.server.logger"
+        ) as mock_logger:
+            key = get_or_generate_secret_key()
+            self.assertEqual(key, "lekha-dev")
+            # Mock object methods are dynamically typed, so type checking is suppressed
+            mock_logger.warning.assert_called_once()  # pyright: ignore[reportAny]
+            call_args = cast(tuple[tuple[object, ...], dict[str, object]], mock_logger.warning.call_args)  # pyright: ignore[reportAny]
+            args, _ = call_args
+            self.assertIn("default secret key", str(args[0]))
+
+    def test_get_or_generate_secret_key_generates_if_not_set(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            key = get_or_generate_secret_key()
+            # Should be a hex string of length 64 (32 bytes as hex)
+            self.assertEqual(len(key), 64)
+            self.assertTrue(all(c in "0123456789abcdef" for c in key))
+
+    def test_generated_keys_are_unique(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            key1 = get_or_generate_secret_key()
+            key2 = get_or_generate_secret_key()
+            self.assertNotEqual(key1, key2)

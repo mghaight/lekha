@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from lekha.ocr.tesseract_engine import run_tesseract
+from lekha.ocr.tesseract_engine import run_tesseract, validate_tesseract_installation
 
 warnings.simplefilter("ignore", ResourceWarning)
 
@@ -67,3 +67,51 @@ class OCRTests(unittest.TestCase):
                     _ = run_tesseract(image_path, ["san"])
 
         self.assertIn("missing the traineddata", str(ctx.exception))
+
+
+class TesseractValidationTests(unittest.TestCase):
+    def test_validate_tesseract_installation_succeeds_when_installed(self) -> None:
+        # This test will only pass if tesseract is actually installed
+        # If pytesseract is available, the validation should succeed
+        import sys
+
+        # Temporarily make pytesseract appear missing
+        pytesseract_module = sys.modules.get("pytesseract")
+        if pytesseract_module is None:
+            # pytesseract not installed, validation should fail
+            with self.assertRaises(RuntimeError) as ctx:
+                validate_tesseract_installation()
+            self.assertIn("pytesseract is not installed", str(ctx.exception))
+        else:
+            # pytesseract is installed, should succeed or fail based on tesseract availability
+            try:
+                validate_tesseract_installation()
+            except RuntimeError as exc:
+                # If it fails, it should have helpful error message
+                error_msg = str(exc)
+                self.assertTrue(
+                    "not installed" in error_msg or "not accessible" in error_msg,
+                    f"Expected helpful error message, got: {error_msg}",
+                )
+
+    def test_validate_tesseract_installation_fails_when_pytesseract_missing(self) -> None:
+        with patch("lekha.ocr.tesseract_engine.pytesseract", None):
+            with self.assertRaises(RuntimeError) as ctx:
+                validate_tesseract_installation()
+            error_msg = str(ctx.exception)
+            self.assertIn("pytesseract is not installed", error_msg)
+            self.assertIn("pip install pytesseract", error_msg)
+
+    def test_validate_tesseract_installation_fails_when_tesseract_not_accessible(self) -> None:
+        # Create a non-None mock for pytesseract to ensure we reach the subprocess check
+        mock_pytesseract = object()
+        # Mock subprocess.run to simulate tesseract not being found
+        with patch("lekha.ocr.tesseract_engine.pytesseract", new=mock_pytesseract), patch(
+            "lekha.ocr.tesseract_engine.subprocess.run"
+        ) as mock_run:
+            mock_run.side_effect = FileNotFoundError("tesseract not found in PATH")
+            with self.assertRaises(RuntimeError) as ctx:
+                validate_tesseract_installation()
+            error_msg = str(ctx.exception)
+            self.assertIn("not installed or not accessible", error_msg)
+            self.assertIn("brew install tesseract", error_msg)
