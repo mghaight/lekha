@@ -350,3 +350,68 @@ class SecretKeyTests(unittest.TestCase):
             key1 = get_or_generate_secret_key()
             key2 = get_or_generate_secret_key()
             self.assertNotEqual(key1, key2)
+
+
+class MissingAssetsTests(unittest.TestCase):
+    temp_dir: tempfile.TemporaryDirectory[str] | None
+    data_root: Path | None
+
+    def __init__(self, methodName: str = "runTest") -> None:
+        super().__init__(methodName)
+        self.temp_dir = None
+        self.data_root = None
+
+    @override
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.data_root = Path(self.temp_dir.name) / "data"
+        self.data_root.mkdir(parents=True, exist_ok=True)
+        patcher_project = patch("lekha.project.get_data_root", return_value=self.data_root)
+        patcher_server = patch("lekha.server.get_data_root", return_value=self.data_root)
+        _ = patcher_project.start()
+        _ = patcher_server.start()
+        self.addCleanup(patcher_project.stop)
+        self.addCleanup(patcher_server.stop)
+
+    def test_missing_assets_directory_handled_gracefully(self) -> None:
+        project_id = "no-assets-project"
+        store = ProjectStore(project_id)
+
+        # Create manifest and segments without assets directory
+        manifest = ProjectManifest(
+            project_id=project_id,
+            source="source.pdf",
+            languages=["eng"],
+            models=["tesseract"],
+            files=["page.png"],
+        )
+        store.write_manifest(manifest)
+
+        segment = Segment(
+            segment_id="p000_l0000",
+            view="line",
+            page_index=0,
+            line_index=0,
+            word_index=None,
+            page_image="page.png",
+            bbox={"x": 10, "y": 10, "w": 100, "h": 20},
+            base_text="test",
+            consensus_text="test",
+            has_conflict=False,
+        )
+        store.write_segments([segment])
+
+        # Delete assets directory
+        import shutil
+        if store.assets_dir.exists():
+            shutil.rmtree(store.assets_dir)
+
+        # Creating runtime should work (lazy loading)
+        runtime = ProjectRuntime(store)
+        self.assertIsNotNone(runtime)
+
+        # Trying to get dimensions should fail with clear error
+        with self.assertRaises(FileNotFoundError) as ctx:
+            _ = runtime._get_page_dimensions("page.png")  # pyright: ignore[reportPrivateUsage]
+        self.assertIn("Image file not found", str(ctx.exception))

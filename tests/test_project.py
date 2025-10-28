@@ -126,3 +126,84 @@ class ProjectStoreTests(unittest.TestCase):
         store.write_master("hello world")
         self.assertTrue(store.master_path.exists())
         self.assertEqual(store.master_path.read_text(encoding="utf-8"), "hello world")
+
+
+class CorruptedJSONTests(unittest.TestCase):
+    temp_dir: tempfile.TemporaryDirectory[str] | None = None
+    data_root: Path | None = None
+
+    @override
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.data_root = Path(self.temp_dir.name) / "data"
+        self.data_root.mkdir(parents=True, exist_ok=True)
+        patcher = patch("lekha.project.get_data_root", return_value=self.data_root)
+        self.addCleanup(patcher.stop)
+        _ = patcher.start()
+
+    def test_load_manifest_raises_on_invalid_json(self) -> None:
+        store = ProjectStore("corrupt-1")
+        _ = store.meta_path.write_text("not valid json {{{", encoding="utf-8")
+        with self.assertRaises(json.JSONDecodeError):
+            _ = store.load_manifest()
+
+    def test_load_manifest_raises_on_non_dict_json(self) -> None:
+        store = ProjectStore("corrupt-2")
+        _ = store.meta_path.write_text('["list", "not", "dict"]', encoding="utf-8")
+        with self.assertRaises(ValueError) as ctx:
+            _ = store.load_manifest()
+        self.assertIn("Invalid manifest format", str(ctx.exception))
+
+    def test_load_manifest_raises_on_missing_project_id(self) -> None:
+        store = ProjectStore("corrupt-3")
+        _ = store.meta_path.write_text('{"source": "file.pdf"}', encoding="utf-8")
+        with self.assertRaises(ValueError) as ctx:
+            _ = store.load_manifest()
+        self.assertIn("project_id", str(ctx.exception))
+
+    def test_load_segments_raises_on_invalid_json(self) -> None:
+        store = ProjectStore("corrupt-4")
+        _ = store.segments_path.write_text("not valid json", encoding="utf-8")
+        with self.assertRaises(json.JSONDecodeError):
+            _ = store.load_segments()
+
+    def test_load_segments_raises_on_non_list_json(self) -> None:
+        store = ProjectStore("corrupt-5")
+        _ = store.segments_path.write_text('{"not": "a list"}', encoding="utf-8")
+        with self.assertRaises(ValueError) as ctx:
+            _ = store.load_segments()
+        self.assertIn("Invalid segments data", str(ctx.exception))
+
+    def test_load_segments_raises_on_invalid_segment_entry(self) -> None:
+        store = ProjectStore("corrupt-6")
+        _ = store.segments_path.write_text('["string instead of dict"]', encoding="utf-8")
+        with self.assertRaises(ValueError) as ctx:
+            _ = store.load_segments()
+        self.assertIn("Invalid segment entry", str(ctx.exception))
+
+    def test_read_edits_raises_on_invalid_json(self) -> None:
+        store = ProjectStore("corrupt-7")
+        _ = store.edits_path.write_text("not valid json", encoding="utf-8")
+        with self.assertRaises(json.JSONDecodeError):
+            _ = store.read_edits()
+
+    def test_read_edits_raises_on_non_dict_json(self) -> None:
+        store = ProjectStore("corrupt-8")
+        _ = store.edits_path.write_text('["not", "dict"]', encoding="utf-8")
+        with self.assertRaises(ValueError) as ctx:
+            _ = store.read_edits()
+        self.assertIn("Invalid edits data", str(ctx.exception))
+
+    def test_read_state_raises_on_invalid_json(self) -> None:
+        store = ProjectStore("corrupt-9")
+        _ = store.state_path.write_text("not valid json", encoding="utf-8")
+        with self.assertRaises(json.JSONDecodeError):
+            _ = store.read_state()
+
+    def test_read_state_raises_on_non_dict_json(self) -> None:
+        store = ProjectStore("corrupt-10")
+        _ = store.state_path.write_text('[1, 2, 3]', encoding="utf-8")
+        with self.assertRaises(ValueError) as ctx:
+            _ = store.read_state()
+        self.assertIn("Invalid state data", str(ctx.exception))
